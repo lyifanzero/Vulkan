@@ -11,9 +11,16 @@
 #include "vulkanexamplebase.h"
 #include "VulkanglTFModel.h"
 
+#include "ffx_api/vk/ffx_api_vk.hpp"
+#include "ffx_framegeneration.hpp"
+
 class VulkanExample : public VulkanExampleBase
 {
 public:
+	ffx::Context m_FrameGenContext;
+	ffx::ConfigureDescFrameGeneration m_FrameGenerationConfig{};
+	uint64_t m_FrameID = 0;
+
 	vkglTF::Model model;
 
 	struct UniformData {
@@ -173,6 +180,79 @@ public:
 		uniformData.view = camera.matrices.view;
 		uniformData.model = glm::mat4(1.0f);
 		uniformBuffer.copyTo(&uniformData, sizeof(UniformData));
+	}
+
+	void prepareFSRContext() {
+		ffx::CreateBackendVKDesc backendDesc{};
+		/*backendDesc.header.type = ;
+		backendDesc.vkDevice = ;
+		backendDesc.vkPhysicalDevice = ;
+		backendDesc.vkDeviceProcAddr = ;*/
+		
+		// Create the FrameGen context
+		ffx::CreateContextDescFrameGeneration createFg{};
+		/*createFg.displaySize = ;
+		createFg.maxRenderSize = ;
+		createFg.flags = ;
+		createFg.backBufferFormat = ;*/
+
+		ffx::ReturnCode retCode = ffx::CreateContext(m_FrameGenContext, nullptr, createFg, backendDesc);
+		// Check if retCode == ffx::ReturnCode::OK
+
+		/*m_FrameGenerationConfig.frameGenerationEnabled = false;
+		m_FrameGenerationConfig.frameGenerationCallback = ;*/
+			
+		retCode = ffx::Configure(m_FrameGenContext, m_FrameGenerationConfig);
+	}
+
+	void executeFSR() {
+		//
+		ffx::DispatchDescFrameGenerationPrepare dispatchFgPrep{};
+		/*dispatchFgPrep.commandList = ;
+		dispatchFgPrep.depth = ;
+		dispatchFgPrep.motionVectors = ;
+		dispatchFgPrep.flags = ;
+		dispatchFgPrep.jitterOffset.x = 0;
+		dispatchFgPrep.jitterOffset.y = 0;
+		dispatchFgPrep.motionVectorScale.x = ;
+		dispatchFgPrep.motionVectorScale.y = ;
+		dispatchFgPrep.frameTimeDelta = ;
+		dispatchFgPrep.renderSize.width = ;
+		dispatchFgPrep.renderSize.height = ;
+		dispatchFgPrep.cameraFovAngleVertical = ;
+		dispatchFgPrep.cameraFar = ;
+		dispatchFgPrep.cameraNear = ;
+		dispatchFgPrep.viewSpaceToMetersFactor = ;
+		dispatchFgPrep.frameID = ;*/
+
+		/*m_FrameGenerationConfig.frameGenerationEnabled = ;
+		m_FrameGenerationConfig.flags = ;*/
+
+		dispatchFgPrep.flags = m_FrameGenerationConfig.flags;
+
+		/*m_FrameGenerationConfig.generationRect.left = ;
+		m_FrameGenerationConfig.frameID = ;
+		m_FrameGenerationConfig.swapChain = swapChain;*/
+
+		ffx::ReturnCode retCode = ffx::Configure(m_FrameGenContext, m_FrameGenerationConfig);
+
+		retCode = ffx::Dispatch(m_FrameGenContext, dispatchFgPrep);
+
+		//
+		ffx::DispatchDescFrameGeneration dispatchFg{};
+
+		/*dispatchFg.presentColor = ;
+		dispatchFg.numGeneratedFrames = 1;
+		dispatchFg.generationRect.left = ;
+		dispatchFg.frameID = ;
+		dispatchFg.reset = ;*/
+
+		retCode = ffx::Dispatch(m_FrameGenContext, dispatchFg);
+
+	}
+
+	void destroyFSR() {
+		ffx::DestroyContext(m_FrameGenContext);
 	}
 
 	// Take a screenshot from the current swapchain image
@@ -396,6 +476,10 @@ public:
 		setupDescriptors();
 		preparePipelines();
 		buildCommandBuffers();
+
+		// fsr fg
+		prepareFSRContext();
+
 		prepared = true;
 	}
 
@@ -405,6 +489,9 @@ public:
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &drawCmdBuffers[currentBuffer];
 		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+
+		executeFSR();
+
 		VulkanExampleBase::submitFrame();
 	}
 
