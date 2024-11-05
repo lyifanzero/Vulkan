@@ -127,6 +127,21 @@ ELSE()
 	message(STATUS ${Vulkan_LIBRARY})
 ENDIF()
 
+# Find fidelityfx sdk library
+IF (NOT FidelityFX_FOUND)
+	find_library(FIDELITYFX_LIBRARY NAMES amd_fidelityfx_vk PATHS ${CMAKE_SOURCE_DIR}/external/fidelityfx-sdk/PrebuiltSignedDLL)
+	IF (FIDELITYFX_LIBRARY)
+		set(FidelityFX_FOUND ON)
+		MESSAGE("Using fidelityfx-sdk")
+	ENDIF()
+ENDIF()
+
+IF(NOT FidelityFX_FOUND)
+	message(FATAL_ERROR "Could not find fidelityfx-sdk!")
+ELSE()
+	message(STATUS ${FIDELITYFX_LIBRARY})
+ENDIF()
+
 # Set preprocessor defines
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNOMINMAX -D_USE_MATH_DEFINES")
 
