@@ -158,8 +158,8 @@ public:
 	bool prepared = false;
 	bool resized = false;
 	bool viewUpdated = false;
-	uint32_t width = 1280;
-	uint32_t height = 720;
+	uint32_t width = 1708;
+	uint32_t height = 960;
 
 	vks::UIOverlay ui;
 	CommandLineParser commandLineParser;

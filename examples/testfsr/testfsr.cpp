@@ -11,23 +11,43 @@
 #include "vulkanexamplebase.h"
 #include "VulkanglTFModel.h"
 
-#include "ffx_api/vk/ffx_api_vk.hpp"
-#include "ffx_framegeneration.hpp"
+#include "ffx_api/ffx_api.h"
+#include "ffx_api/ffx_framegeneration.h"
+#include "ffx_api/vk/ffx_api_vk.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+//#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+// Vertex layout for this example
+struct Vertex {
+	float pos[3];
+	float uv[2];
+	float normal[3];
+};
 
 class VulkanExample : public VulkanExampleBase
 {
 public:
-	ffx::Context m_FrameGenContext;
-	ffx::ConfigureDescFrameGeneration m_FrameGenerationConfig{};
+	//
+	ffxContext m_FrameGenContext;
+	ffxConfigureDescFrameGeneration m_FrameGenerationConfig{};
 	uint64_t m_FrameID = 0;
 
-	vkglTF::Model model;
+	vks::Texture2D loadColorTexture;
+	vks::Texture2D loadDepthTexture;
+	vks::Texture2D loadMotionVectors;
 
+	vks::Buffer vertexBuffer;
+	vks::Buffer indexBuffer;
+	uint32_t indexCount{ 0 };
+
+	//
 	struct UniformData {
-		glm::mat4 projection;
-		glm::mat4 model;
-		glm::mat4 view;
-		int32_t texIndex = 0;
+		glm::mat4 viewProjection;
+		glm::mat4 prevViewProjection;
 	} uniformData;
 	vks::Buffer uniformBuffer;
 
@@ -54,12 +74,11 @@ public:
 			vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 			uniformBuffer.destroy();
-		}
-	}
 
-	void loadAssets()
-	{
-		model.loadFromFile(getAssetPath() + "models/chinesedragon.gltf", vulkanDevice, queue, vkglTF::FileLoadingFlags::PreTransformVertices | vkglTF::FileLoadingFlags::PreMultiplyVertexColors | vkglTF::FileLoadingFlags::FlipY);
+			loadColorTexture.destroy();
+			loadDepthTexture.destroy();
+			loadMotionVectors.destroy();
+		}
 	}
 
 	void buildCommandBuffers()
@@ -96,7 +115,12 @@ public:
 
 			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, NULL);
 			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-			model.draw(drawCmdBuffers[i]);
+			
+			VkDeviceSize offsets[1] = { 0 };
+			vkCmdBindVertexBuffers(drawCmdBuffers[i], 0, 1, &vertexBuffer.buffer, offsets);
+			vkCmdBindIndexBuffer(drawCmdBuffers[i], indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+			vkCmdDrawIndexed(drawCmdBuffers[i], indexCount, 1, 0, 0, 0);
 
 			drawUI(drawCmdBuffers[i]);
 
@@ -111,13 +135,18 @@ public:
 		// Pool
 		std::vector<VkDescriptorPoolSize> poolSizes = {
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
+			// The sample uses a combined image + sampler descriptor to sample the texture in the fragment shader
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1)
 		};
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, 2);
 		VK_CHECK_RESULT(vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool));
 
 		// Layout
 		std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
-			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),		// Binding 0: Vertex shader uniform buffer
+			// Binding 0: Fragment shader uniform buffer
+			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
+			// Binding 1 : Fragment shader image sampler
+			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1)
 		};
 		VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
 		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
@@ -125,8 +154,25 @@ public:
 		// Set
 		VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
 		VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
+		
+		// Setup a descriptor image info for the current texture to be used as a combined image sampler
+		VkDescriptorImageInfo textureDescriptor;
+		// The image's view (images are never directly accessed by the shader, but rather through views defining subresources)
+		textureDescriptor.imageView = loadColorTexture.view;
+		// The sampler (Telling the pipeline how to sample the texture, including repeat, border, etc.)
+		textureDescriptor.sampler = loadColorTexture.sampler;
+		// The current layout of the image(Note: Should always fit the actual use, e.g.shader read)
+		textureDescriptor.imageLayout = loadColorTexture.imageLayout;
+
 		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformBuffer.descriptor),	// Binding 0: Vertex shader uniform buffer
+			// Binding 0: Vertex shader uniform buffer
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformBuffer.descriptor),
+			// Binding 1 : Fragment shader texture sampler
+			//	Fragment shader: layout (binding = 1) uniform sampler2D samplerColor;
+			vks::initializers::writeDescriptorSet(descriptorSet,
+				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,		// The descriptor set will use a combined image sampler (as opposed to splitting image and sampler)
+				1,												// Shader binding point 1
+				&textureDescriptor)								// Pointer to the descriptor image for our texture
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 	}
@@ -149,9 +195,24 @@ public:
 		VkPipelineDynamicStateCreateInfo dynamicState = vks::initializers::pipelineDynamicStateCreateInfo(dynamicStateEnables);
 
 		std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = {
-			loadShader(getShadersPath() + "testfsr/convertMV.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
-			loadShader(getShadersPath() + "testfsr/convertMV.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT),
+			loadShader(getShadersPath() + "texture/texture.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+			loadShader(getShadersPath() + "texture/texture.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT),
 		};
+
+		// Vertex input state
+		std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+			vks::initializers::vertexInputBindingDescription(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX)
+		};
+		std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+			vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)),
+			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)),
+			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)),
+		};
+		VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+		vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+		vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+		vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+		vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
 
 		VkGraphicsPipelineCreateInfo pipelineCI = vks::initializers::pipelineCreateInfo(pipelineLayout, renderPass, 0);
 		pipelineCI.pInputAssemblyState = &inputAssemblyState;
@@ -163,7 +224,7 @@ public:
 		pipelineCI.pDynamicState = &dynamicState;
 		pipelineCI.stageCount = static_cast<uint32_t>(shaderStages.size());
 		pipelineCI.pStages = shaderStages.data();
-		pipelineCI.pVertexInputState = vkglTF::Vertex::getPipelineVertexInputState({vkglTF::VertexComponent::Position, vkglTF::VertexComponent::Normal, vkglTF::VertexComponent::Color});
+		pipelineCI.pVertexInputState = &vertexInputState;
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCI, nullptr, &pipeline));
 	}
 
@@ -176,83 +237,268 @@ public:
 
 	void updateUniformBuffers()
 	{
-		uniformData.projection = camera.matrices.perspective;
-		uniformData.view = camera.matrices.view;
-		uniformData.model = glm::mat4(1.0f);
+		// TODO: Set the vp matrix from file
+		uniformData.viewProjection = camera.matrices.perspective;
+		uniformData.prevViewProjection = camera.matrices.perspective;
 		uniformBuffer.copyTo(&uniformData, sizeof(UniformData));
 	}
 
-	void prepareFSRContext() {
-		ffx::CreateBackendVKDesc backendDesc{};
-		/*backendDesc.header.type = ;
-		backendDesc.vkDevice = ;
-		backendDesc.vkPhysicalDevice = ;
-		backendDesc.vkDeviceProcAddr = ;*/
-		
-		// Create the FrameGen context
-		ffx::CreateContextDescFrameGeneration createFg{};
-		/*createFg.displaySize = ;
-		createFg.maxRenderSize = ;
-		createFg.flags = ;
-		createFg.backBufferFormat = ;*/
+	std::vector<unsigned char> readFile(const std::string& filename) {
+		std::ifstream file(filename, std::ios::binary);
+		if (!file) {
+			printf("Failed to open file %s\n", filename.c_str());
+			return {};
+		}
 
-		ffx::ReturnCode retCode = ffx::CreateContext(m_FrameGenContext, nullptr, createFg, backendDesc);
-		// Check if retCode == ffx::ReturnCode::OK
+		file.seekg(0, std::ios::end);
+		size_t fileSize = file.tellg();
+		file.seekg(0, std::ios::beg);
 
-		/*m_FrameGenerationConfig.frameGenerationEnabled = false;
-		m_FrameGenerationConfig.frameGenerationCallback = ;*/
-			
-		retCode = ffx::Configure(m_FrameGenContext, m_FrameGenerationConfig);
+		std::vector<unsigned char> buffer(fileSize);
+		file.read(reinterpret_cast<char*>(buffer.data()), fileSize);
+		return buffer;
 	}
 
-	void executeFSR() {
+	void loadColorTextureFromPNG(const std::string& filename) {
+		int width, height, channels;
+		std::vector<unsigned char> fileData = readFile(filename);
+		if (fileData.empty()) {
+			return;
+		}
+
+		stbi_set_flip_vertically_on_load(true);
+		unsigned char* imageData = stbi_load_from_memory(fileData.data(), fileData.size(), &width, &height, &channels, STBI_rgb_alpha);
+		if (!imageData) {
+			printf("Failed to load image: %s\n", filename.c_str());
+			return;
+		}
+		loadColorTexture.fromBuffer(imageData, width * height * channels, VK_FORMAT_R8G8B8A8_UNORM, width, height, vulkanDevice, queue);
+		printf("loadColorTextureFromPNG: width = %d, height = %d, channels = %d, texture = %d\n", width, height, channels, loadColorTexture.image);
+
+		stbi_image_free(imageData);
+	}
+
+	void loadDepthTextureFromPNG(const std::string& filename) {
+		int width, height, channels;
+		std::vector<unsigned char> fileData = readFile(filename);
+		if (fileData.empty()) {
+			return;
+		}
+
+		stbi_set_flip_vertically_on_load(true);
+		unsigned char* imageData = stbi_load_from_memory(fileData.data(), fileData.size(), &width, &height, &channels, STBI_rgb_alpha);
+		if (!imageData) {
+			printf("Failed to load image: %s\n", filename.c_str());
+			return;
+		}
+
+		std::vector<GLuint> depthData(width * height);
+		for (int i = 0; i < width * height; ++i) {
+			unsigned char r = imageData[i * 4 + 0];
+			unsigned char g = imageData[i * 4 + 1];
+			unsigned char b = imageData[i * 4 + 2];
+			float depth = r / 255.0f + g / (255.0f * 255.0f) + b / (255.0f * 255.0f * 255.0f);
+
+			// float to 24 bit unsigned int
+			depthData[i] = static_cast<uint32_t>(depth * 16777215.0f); // 16777215 = 2^24 - 1
+
+			// Don't need to shift 8 bit
+			// depthData[i] = depthData[i] << 8;
+		}
+
+		loadDepthTexture.fromBuffer(depthData.data(), depthData.size() * sizeof(GLuint), VK_FORMAT_R32_UINT, width, height, vulkanDevice, queue);
+		printf("loadDepthTextureFromPNG: width = %d, height = %d, channels = %d, texture = %d\n", width, height, channels, loadDepthTexture.image);
+
+		stbi_image_free(imageData);
+	}
+
+	void loadMVTextureFromPNG(const std::string& filename) {
+		int width, height, channels;
+		std::vector<unsigned char> fileData = readFile(filename);
+		if (fileData.empty()) {
+			return;
+		}
+
+		stbi_set_flip_vertically_on_load(true);
+		unsigned char* imageData = stbi_load_from_memory(fileData.data(), fileData.size(), &width, &height, &channels, STBI_rgb_alpha);
+		if (!imageData) {
+			printf("Failed to load image: %s\n", filename.c_str());
+			return;
+		}
+
+		std::vector<uint16_t> mvData(width * height * 2);
+		for (int i = 0; i < width * height; ++i) {
+			uint16_t r = imageData[i * 4 + 0];
+			uint16_t g = imageData[i * 4 + 1];
+			uint16_t b = imageData[i * 4 + 2];
+			uint16_t a = imageData[i * 4 + 3];
+
+			mvData[i * 2 + 0] = (r << 8) | g;
+			mvData[i * 2 + 1] = (b << 8) | a;
+		}
+
+		loadMotionVectors.fromBuffer(mvData.data(), mvData.size() * sizeof(uint16_t), VK_FORMAT_R16G16_UINT, width, height, vulkanDevice, queue);
+		printf("loadMVTextureFromPNG: width = %d, height = %d, channels = %d, texture = %d\n", width, height, channels, loadMotionVectors.image);
+
+		stbi_image_free(imageData);
+	}
+
+	void loadResource(int frameIndex) {
+		std::string filePath = R"(E:\dwarping\dwarping_1011_30fps)";
+		std::string fileName;
+		int index = 101 + frameIndex;
+		fileName = filePath + "/color/color_frame" + std::to_string(index) + ".png";
+		loadColorTextureFromPNG(fileName);
+		fileName = filePath + "/depth/depth_frame" + std::to_string(index) + ".png";
+		loadDepthTextureFromPNG(fileName);
+		fileName = filePath + "/mvBackward/mvBackward_frame" + std::to_string(index) + ".png";
+		loadMVTextureFromPNG(fileName);
+		// TODO: Load vp matrix
+	}
+
+	// Creates a vertex and index buffer for a quad made of two triangles
+	// This is used to display the texture on
+	void generateQuad()
+	{
+		// Setup vertices for a single uv-mapped quad made from two triangles
+		std::vector<Vertex> vertices =
+		{
+			{ {  1.0f,  1.0f, 0.0f }, { 1.0f, 1.0f },{ 0.0f, 0.0f, 1.0f } },
+			{ { -1.0f,  1.0f, 0.0f }, { 0.0f, 1.0f },{ 0.0f, 0.0f, 1.0f } },
+			{ { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f },{ 0.0f, 0.0f, 1.0f } },
+			{ {  1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f },{ 0.0f, 0.0f, 1.0f } }
+		};
+
+		// Setup indices
+		std::vector<uint32_t> indices = { 0,1,2, 2,3,0 };
+		indexCount = static_cast<uint32_t>(indices.size());
+
+		// Create buffers and upload data to the GPU
+		struct StagingBuffers {
+			vks::Buffer vertices;
+			vks::Buffer indices;
+		} stagingBuffers;
+
+		// Host visible source buffers (staging)
+		VK_CHECK_RESULT(vulkanDevice->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffers.vertices, vertices.size() * sizeof(Vertex), vertices.data()));
+		VK_CHECK_RESULT(vulkanDevice->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffers.indices, indices.size() * sizeof(uint32_t), indices.data()));
+
+		// Device local destination buffers
+		VK_CHECK_RESULT(vulkanDevice->createBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &vertexBuffer, vertices.size() * sizeof(Vertex)));
+		VK_CHECK_RESULT(vulkanDevice->createBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &indexBuffer, indices.size() * sizeof(uint32_t)));
+
+		// Copy from host do device
+		vulkanDevice->copyBuffer(&stagingBuffers.vertices, &vertexBuffer, queue);
+		vulkanDevice->copyBuffer(&stagingBuffers.indices, &indexBuffer, queue);
+
+		// Clean up
+		stagingBuffers.vertices.destroy();
+		stagingBuffers.indices.destroy();
+	}
+
+	void prepareFSRContext() {
+		ffxCreateBackendVKDesc backendDesc{};
+		backendDesc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK;
+		backendDesc.vkDevice = device;
+		backendDesc.vkPhysicalDevice = physicalDevice;
+		backendDesc.vkDeviceProcAddr = vkGetDeviceProcAddr;
+		
+		// Create the FrameGen context
+		ffxCreateContextDescFrameGeneration createFg{};
+		createFg.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+		createFg.displaySize = { width, height };
+		createFg.maxRenderSize = { width, height };
+		// The flags is combination of FfxApiCreateContextFramegenerationFlags
+		bool depthInverted = false;
+		bool enableAsyncCompute = false;
+		if (depthInverted) {
+			createFg.flags |= FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED | FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE;
+		}
+		if (enableAsyncCompute) {
+			createFg.flags |= FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT;
+		}
+		// FIXME: Whether need to enable HDR?
+		createFg.flags |= FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
+		// Surface format: one of the values from FfxApiSurfaceFormat
+		createFg.backBufferFormat = FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM;  // Keep this same with type of swapchain backbuffer or create a new one
+
+		// FIXME: how to set backendDesc, now crash here
+		//createFg.header.pNext = &backendDesc.header;
+		ffxReturnCode_t retCode = ffxCreateContext(&m_FrameGenContext, &createFg.header, nullptr);
+		// Check if retCode == ffx::ReturnCode::OK
+
+		m_FrameGenerationConfig.frameGenerationEnabled = false;
+		m_FrameGenerationConfig.frameGenerationCallback = [](ffxDispatchDescFrameGeneration* params, void* pUserCtx) -> ffxReturnCode_t {
+			return ffxDispatch(reinterpret_cast<ffxContext*>(pUserCtx), &params->header);
+		};
+		m_FrameGenerationConfig.frameGenerationCallbackUserContext = &m_FrameGenContext;
+		m_FrameGenerationConfig.presentCallback = nullptr;
+		m_FrameGenerationConfig.presentCallbackUserContext = nullptr;
+		m_FrameGenerationConfig.swapChain = &swapChain;
+		m_FrameGenerationConfig.frameID = m_FrameID;
+
+		retCode = ffxConfigure(&m_FrameGenContext, &m_FrameGenerationConfig.header);
+	}
+
+	void executeFSR(VkCommandBuffer prepCmd, VkCommandBuffer fgCmd) {
 		//
-		ffx::DispatchDescFrameGenerationPrepare dispatchFgPrep{};
-		/*dispatchFgPrep.commandList = ;
-		dispatchFgPrep.depth = ;
-		dispatchFgPrep.motionVectors = ;
-		dispatchFgPrep.flags = ;
+		ffxDispatchDescFrameGenerationPrepare dispatchFgPrep{};
+		dispatchFgPrep.commandList = prepCmd;
+		dispatchFgPrep.depth = {&loadDepthTexture};
+		dispatchFgPrep.motionVectors = {&loadMotionVectors};
+		dispatchFgPrep.flags = 0;
 		dispatchFgPrep.jitterOffset.x = 0;
 		dispatchFgPrep.jitterOffset.y = 0;
-		dispatchFgPrep.motionVectorScale.x = ;
-		dispatchFgPrep.motionVectorScale.y = ;
-		dispatchFgPrep.frameTimeDelta = ;
-		dispatchFgPrep.renderSize.width = ;
-		dispatchFgPrep.renderSize.height = ;
-		dispatchFgPrep.cameraFovAngleVertical = ;
-		dispatchFgPrep.cameraFar = ;
-		dispatchFgPrep.cameraNear = ;
-		dispatchFgPrep.viewSpaceToMetersFactor = ;
-		dispatchFgPrep.frameID = ;*/
+		dispatchFgPrep.motionVectorScale.x = width;
+		dispatchFgPrep.motionVectorScale.y = height;
+		dispatchFgPrep.frameTimeDelta = 33.3;
+		dispatchFgPrep.renderSize.width = width;
+		dispatchFgPrep.renderSize.height = height;
+		dispatchFgPrep.cameraFovAngleVertical = 45;
+		dispatchFgPrep.cameraFar = 0.0;
+		dispatchFgPrep.cameraNear = 2097152.0;
+		dispatchFgPrep.viewSpaceToMetersFactor = 0.f;
+		dispatchFgPrep.frameID = m_FrameID;
 
-		/*m_FrameGenerationConfig.frameGenerationEnabled = ;
-		m_FrameGenerationConfig.flags = ;*/
-
+		bool presentInterpolatedOnly = false;
+		//
+		m_FrameGenerationConfig.frameGenerationEnabled = true;
+		m_FrameGenerationConfig.flags = 0;
 		dispatchFgPrep.flags = m_FrameGenerationConfig.flags;
+		m_FrameGenerationConfig.generationRect.left = 0;
+		m_FrameGenerationConfig.generationRect.top = 0;
+		m_FrameGenerationConfig.generationRect.width = width;
+		m_FrameGenerationConfig.generationRect.height = height;
+		m_FrameGenerationConfig.frameGenerationCallback = nullptr;
+		m_FrameGenerationConfig.frameGenerationCallbackUserContext = nullptr;
+		m_FrameGenerationConfig.onlyPresentGenerated = presentInterpolatedOnly;
+		m_FrameGenerationConfig.frameID = m_FrameID;
 
-		/*m_FrameGenerationConfig.generationRect.left = ;
-		m_FrameGenerationConfig.frameID = ;
-		m_FrameGenerationConfig.swapChain = swapChain;*/
+		m_FrameGenerationConfig.swapChain = &swapChain;
 
-		ffx::ReturnCode retCode = ffx::Configure(m_FrameGenContext, m_FrameGenerationConfig);
+		ffxReturnCode_t retCode = ffxConfigure(&m_FrameGenContext, &m_FrameGenerationConfig.header);
 
-		retCode = ffx::Dispatch(m_FrameGenContext, dispatchFgPrep);
+		retCode = ffxDispatch(&m_FrameGenContext, &dispatchFgPrep.header);
 
 		//
-		ffx::DispatchDescFrameGeneration dispatchFg{};
-
-		/*dispatchFg.presentColor = ;
+		bool resetFSRFG = false;
+		ffxDispatchDescFrameGeneration dispatchFg{};
+		dispatchFg.presentColor = {&loadColorTexture};
 		dispatchFg.numGeneratedFrames = 1;
-		dispatchFg.generationRect.left = ;
-		dispatchFg.frameID = ;
-		dispatchFg.reset = ;*/
+		dispatchFg.generationRect.left = 0;
+		dispatchFg.generationRect.top = 0;
+		dispatchFg.generationRect.width = width;
+		dispatchFg.generationRect.height = height;
+		dispatchFg.commandList = fgCmd;
+		dispatchFg.outputs[0] = { swapChain.images[currentBuffer] };
+		dispatchFg.frameID = m_FrameID;
+		dispatchFg.reset = resetFSRFG;
 
-		retCode = ffx::Dispatch(m_FrameGenContext, dispatchFg);
-
+		retCode = ffxDispatch(&m_FrameGenContext, &dispatchFg.header);
 	}
 
 	void destroyFSR() {
-		ffx::DestroyContext(m_FrameGenContext);
+		ffxDestroyContext(&m_FrameGenContext, nullptr);
 	}
 
 	// Take a screenshot from the current swapchain image
@@ -471,14 +717,16 @@ public:
 	void prepare()
 	{
 		VulkanExampleBase::prepare();
-		loadAssets();
+		// load textures
+		loadResource(m_FrameID);
+		generateQuad();
 		prepareUniformBuffers();
 		setupDescriptors();
 		preparePipelines();
 		buildCommandBuffers();
 
-		// fsr fg
-		prepareFSRContext();
+		// fsr create context
+		//prepareFSRContext();
 
 		prepared = true;
 	}
@@ -486,11 +734,13 @@ public:
 	void draw()
 	{
 		VulkanExampleBase::prepareFrame();
+
+		/*VkCommandBuffer fsrCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
+		executeFSR(fsrCmd, drawCmdBuffers[currentBuffer]);*/
+
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &drawCmdBuffers[currentBuffer];
 		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
-
-		executeFSR();
 
 		VulkanExampleBase::submitFrame();
 	}
@@ -517,4 +767,21 @@ public:
 
 };
 
-VULKAN_EXAMPLE_MAIN()
+VulkanExample* vulkanExample; LRESULT __stdcall WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+	if (vulkanExample != 0) {
+		vulkanExample->handleMessages(hWnd, uMsg, wParam, lParam);
+	} 
+	return (DefWindowProcA(hWnd, uMsg, wParam, lParam));
+} 
+int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR, int) {
+	for (int32_t i = 0; i < (*__p___argc()); i++) {
+		VulkanExample::args.push_back((*__p___argv())[i]);
+	}; 
+	vulkanExample = new VulkanExample(); 
+	vulkanExample->initVulkan(); 
+	vulkanExample->setupWindow(hInstance, WndProc); 
+	vulkanExample->prepare(); 
+	vulkanExample->renderLoop(); 
+	delete(vulkanExample); 
+	return 0;
+}
