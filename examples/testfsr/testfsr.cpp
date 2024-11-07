@@ -191,7 +191,7 @@ public:
 		colorReferences.push_back({ 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL });
 
 		VkAttachmentReference depthReference = {};
-		depthReference.attachment = 3;
+		depthReference.attachment = 2;
 		depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		VkSubpassDescription subpass = {};
@@ -397,10 +397,10 @@ public:
 		// Blend attachment states required for all color attachments
 		// This is important, as color write mask will otherwise be 0x0 and you
 		// won't see anything rendered to the attachment
-		std::array<VkPipelineColorBlendAttachmentState, 3> blendAttachmentStates = {
+		std::array<VkPipelineColorBlendAttachmentState, 2> blendAttachmentStates = {
 			vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE),
 			vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE),
-			vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE),
+			//vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE),
 		};
 
 		colorBlendState.attachmentCount = static_cast<uint32_t>(blendAttachmentStates.size());
@@ -456,7 +456,7 @@ public:
 			printf("Failed to load image: %s\n", filename.c_str());
 			return;
 		}
-		loadColorTexture.fromBuffer(imageData, width * height * channels, VK_FORMAT_R8G8B8A8_UNORM, width, height, vulkanDevice, queue);
+		loadColorTexture.fromBuffer(imageData, width * height * sizeof(GLuint), VK_FORMAT_R8G8B8A8_UNORM, width, height, vulkanDevice, queue);
 		printf("loadColorTextureFromPNG: width = %d, height = %d, channels = %d, texture = %d\n", width, height, channels, loadColorTexture.image);
 
 		stbi_image_free(imageData);
