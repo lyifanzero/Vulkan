@@ -129,7 +129,7 @@ ENDIF()
 
 # Find fidelityfx sdk library
 IF (NOT FidelityFX_FOUND)
-	find_library(FIDELITYFX_LIBRARY NAMES amd_fidelityfx_vk PATHS ${CMAKE_SOURCE_DIR}/external/fidelityfx-sdk/PrebuiltSignedDLL)
+	find_library(FIDELITYFX_LIBRARY NAMES amd_fidelityfx_vkd PATHS ${CMAKE_SOURCE_DIR}/external/fidelityfx-sdk/ffx-api/bin)
 	IF (FIDELITYFX_LIBRARY)
 		set(FidelityFX_FOUND ON)
 		MESSAGE("Using fidelityfx-sdk")
