@@ -112,7 +112,20 @@ public:
 			throw std::runtime_error("VK_KHR_get_memory_requirements2 extension not supported");
 		}
 
+		extensionFound = false;
+		for (const auto& extension : availableExtensions) {
+			if (strcmp(extension.extensionName, VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME) == 0) {
+				extensionFound = true;
+				break;
+			}
+		}
+
+		if (!extensionFound) {
+			throw std::runtime_error("VK_KHR_get_memory_requirements2 extension not supported");
+		}
+
 		enabledDeviceExtensions.push_back(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
+		enabledDeviceExtensions.push_back(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
 	}
 
 	void createAttachment(VkFormat format, VkImageUsageFlagBits usage, FrameBufferAttachment* attachment) {
@@ -601,6 +614,7 @@ public:
 		ffxReturnCode_t retCode = ffxCreateContext(&m_FrameGenContext, &createFg.header, nullptr);
 		// Check if retCode == ffx::ReturnCode::OK
 
+		m_FrameGenerationConfig.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
 		m_FrameGenerationConfig.frameGenerationEnabled = false;
 		m_FrameGenerationConfig.frameGenerationCallback = [](ffxDispatchDescFrameGeneration* params, void* pUserCtx) -> ffxReturnCode_t {
 			return ffxDispatch(reinterpret_cast<ffxContext*>(pUserCtx), &params->header);
@@ -617,6 +631,7 @@ public:
 	void executeFSR(VkCommandBuffer prepCmd, VkCommandBuffer fgCmd) {
 		//
 		ffxDispatchDescFrameGenerationPrepare dispatchFgPrep{};
+		dispatchFgPrep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
 		dispatchFgPrep.commandList = prepCmd;
 		dispatchFgPrep.depth = {&loadDepthTexture};
 		dispatchFgPrep.motionVectors = {&loadMotionVectors};
@@ -657,6 +672,7 @@ public:
 		//
 		bool resetFSRFG = false;
 		ffxDispatchDescFrameGeneration dispatchFg{};
+		dispatchFg.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
 		dispatchFg.presentColor = {&loadColorTexture};
 		dispatchFg.numGeneratedFrames = 1;
 		dispatchFg.generationRect.left = 0;
@@ -909,12 +925,13 @@ public:
 	{
 		VulkanExampleBase::prepareFrame();
 
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &convertMVCmdBuffer;
-		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+		VkCommandBuffer fsrCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
+		executeFSR(fsrCmd, drawCmdBuffers[currentBuffer]);
 
-		/*VkCommandBuffer fsrCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
-		executeFSR(fsrCmd, drawCmdBuffers[currentBuffer]);*/
+		VkCommandBuffer cbf[3] = { convertMVCmdBuffer, fsrCmd, drawCmdBuffers[currentBuffer] };
+		submitInfo.commandBufferCount = 3;
+		submitInfo.pCommandBuffers = cbf;
+		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
 
 		VulkanExampleBase::submitFrame();
 	}
