@@ -250,7 +250,7 @@ public:
 		VkSamplerCreateInfo sampler = vks::initializers::samplerCreateInfo();
 		sampler.magFilter = VK_FILTER_NEAREST;
 		sampler.minFilter = VK_FILTER_NEAREST;
-		sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 		sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 		sampler.addressModeV = sampler.addressModeU;
 		sampler.addressModeW = sampler.addressModeU;
@@ -260,7 +260,12 @@ public:
 		sampler.maxLod = 1.0f;
 		sampler.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
 		VK_CHECK_RESULT(vkCreateSampler(device, &sampler, nullptr, &mvSampler));
-
+		loadColorTexture.sampler = mvSampler;
+		loadColorTexture.descriptor.sampler = mvSampler;
+		loadMotionVectors.sampler = mvSampler;
+		loadMotionVectors.descriptor.sampler = mvSampler;
+		loadDepthTexture.sampler = mvSampler;
+		loadDepthTexture.descriptor.sampler = mvSampler;
 	}
 
 	void buildCommandBuffers()
@@ -275,9 +280,10 @@ public:
 
 		VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 
-		std::array<VkClearValue, 2> clearValues;
+		std::array<VkClearValue, 3> clearValues;
 		clearValues[0].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
-		clearValues[1].depthStencil = { 1.0f, 0 };
+		clearValues[1].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+		clearValues[2].depthStencil = { 1.0f, 0 };
 
 		VkRenderPassBeginInfo renderPassBeginInfo = vks::initializers::renderPassBeginInfo();
 		renderPassBeginInfo.renderPass = convertMVFrameBuf.renderPass;
@@ -450,7 +456,7 @@ public:
 			return;
 		}
 
-		stbi_set_flip_vertically_on_load(true);
+		//stbi_set_flip_vertically_on_load(true);
 		unsigned char* imageData = stbi_load_from_memory(fileData.data(), fileData.size(), &width, &height, &channels, STBI_rgb_alpha);
 		if (!imageData) {
 			printf("Failed to load image: %s\n", filename.c_str());
@@ -469,7 +475,7 @@ public:
 			return;
 		}
 
-		stbi_set_flip_vertically_on_load(true);
+		//stbi_set_flip_vertically_on_load(true);
 		unsigned char* imageData = stbi_load_from_memory(fileData.data(), fileData.size(), &width, &height, &channels, STBI_rgb_alpha);
 		if (!imageData) {
 			printf("Failed to load image: %s\n", filename.c_str());
@@ -503,7 +509,7 @@ public:
 			return;
 		}
 
-		stbi_set_flip_vertically_on_load(true);
+		//stbi_set_flip_vertically_on_load(true);
 		unsigned char* imageData = stbi_load_from_memory(fileData.data(), fileData.size(), &width, &height, &channels, STBI_rgb_alpha);
 		if (!imageData) {
 			printf("Failed to load image: %s\n", filename.c_str());
@@ -521,7 +527,7 @@ public:
 			mvData[i * 2 + 1] = (b << 8) | a;
 		}
 
-		loadMotionVectors.fromBuffer(mvData.data(), mvData.size() * sizeof(uint16_t), VK_FORMAT_R16G16_UINT, width, height, vulkanDevice, queue);
+		loadMotionVectors.fromBuffer(mvData.data(), mvData.size() * sizeof(uint16_t), VK_FORMAT_R16G16_UINT, width, height, vulkanDevice, queue, VK_FILTER_NEAREST);
 		printf("loadMVTextureFromPNG: width = %d, height = %d, channels = %d, texture = %d\n", width, height, channels, loadMotionVectors.image);
 
 		stbi_image_free(imageData);
@@ -879,12 +885,12 @@ public:
 	{
 		VulkanExampleBase::prepareFrame();
 
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &convertMVCmdBuffer;
+		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+
 		/*VkCommandBuffer fsrCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
 		executeFSR(fsrCmd, drawCmdBuffers[currentBuffer]);*/
-
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &drawCmdBuffers[currentBuffer];
-		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
 
 		VulkanExampleBase::submitFrame();
 	}
