@@ -91,6 +91,30 @@ public:
 		}
 	}
 
+	void getEnabledExtensions() override {
+		// Get physical device supported extension list
+		uint32_t extensionCount;
+		vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
+
+		std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+		vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, availableExtensions.data());
+
+		// Check if support VK_KHR_get_memory_requirements2
+		bool extensionFound = false;
+		for (const auto& extension : availableExtensions) {
+			if (strcmp(extension.extensionName, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME) == 0) {
+				extensionFound = true;
+				break;
+			}
+		}
+
+		if (!extensionFound) {
+			throw std::runtime_error("VK_KHR_get_memory_requirements2 extension not supported");
+		}
+
+		enabledDeviceExtensions.push_back(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
+	}
+
 	void createAttachment(VkFormat format, VkImageUsageFlagBits usage, FrameBufferAttachment* attachment) {
 		VkImageAspectFlags aspectMask = 0;
 		VkImageLayout imageLayout;
@@ -573,7 +597,7 @@ public:
 		createFg.backBufferFormat = FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM;  // Keep this same with type of swapchain backbuffer or create a new one
 
 		// FIXME: how to set backendDesc, now crash here
-		//createFg.header.pNext = &backendDesc.header;
+		createFg.header.pNext = &backendDesc.header;
 		ffxReturnCode_t retCode = ffxCreateContext(&m_FrameGenContext, &createFg.header, nullptr);
 		// Check if retCode == ffx::ReturnCode::OK
 
