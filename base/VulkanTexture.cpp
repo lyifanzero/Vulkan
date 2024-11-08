@@ -416,6 +416,8 @@ namespace vks
 		}
 		VK_CHECK_RESULT(vkCreateImage(device->logicalDevice, &imageCreateInfo, nullptr, &image));
 
+		createInfo = imageCreateInfo;
+
 		vkGetImageMemoryRequirements(device->logicalDevice, image, &memReqs);
 
 		memAllocInfo.allocationSize = memReqs.size;

@@ -317,7 +317,6 @@ void VulkanSwapChain::create(uint32_t *width, uint32_t *height, bool vsync, bool
 		};
 	}
 
-	VkSwapchainCreateInfoKHR swapchainCI = {};
 	swapchainCI.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 	swapchainCI.surface = surface;
 	swapchainCI.minImageCount = desiredNumberOfSwapchainImages;
@@ -435,6 +434,19 @@ void VulkanSwapChain::cleanup()
 	}
 	surface = VK_NULL_HANDLE;
 	swapChain = VK_NULL_HANDLE;
+}
+
+void VulkanSwapChain::setVKSwapChain(VkSwapchainKHR swapchain, bool isFrameInterpolation = false) {
+	if (swapchain != VK_NULL_HANDLE) {
+		this->swapChain = swapchain;
+		//createSwapChainRenderTargets();
+		isFrameInterpolation = isFrameInterpolation;
+	}
+	else {
+		//destroySwapChainRenderTargets();
+		this->swapChain = swapchain;
+		isFrameInterpolation = false;
+	}
 }
 
 #if defined(_DIRECT2DISPLAY)

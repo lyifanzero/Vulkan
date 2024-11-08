@@ -51,6 +51,7 @@ public:
 		VkDeviceMemory mem;
 		VkImageView view;
 		VkFormat format;
+		VkImageCreateInfo createInfo;
 	};
 	struct FrameBuffer {
 		VkFramebuffer frameBuffer;
@@ -160,6 +161,8 @@ public:
 		image.samples = VK_SAMPLE_COUNT_1_BIT;
 		image.tiling = VK_IMAGE_TILING_OPTIMAL;
 		image.usage = usage | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+		attachment->createInfo = image;
 
 		VkMemoryAllocateInfo memAlloc = vks::initializers::memoryAllocateInfo();
 		VkMemoryRequirements memReqs;
@@ -622,7 +625,7 @@ public:
 		m_FrameGenerationConfig.frameGenerationCallbackUserContext = &m_FrameGenContext;
 		m_FrameGenerationConfig.presentCallback = nullptr;
 		m_FrameGenerationConfig.presentCallbackUserContext = nullptr;
-		m_FrameGenerationConfig.swapChain = &swapChain;
+		//m_FrameGenerationConfig.swapChain = &swapChain;
 		m_FrameGenerationConfig.frameID = m_FrameID;
 
 		retCode = ffxConfigure(&m_FrameGenContext, &m_FrameGenerationConfig.header);
@@ -633,8 +636,14 @@ public:
 		ffxDispatchDescFrameGenerationPrepare dispatchFgPrep{};
 		dispatchFgPrep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
 		dispatchFgPrep.commandList = prepCmd;
-		dispatchFgPrep.depth = {&loadDepthTexture};
-		dispatchFgPrep.motionVectors = {&loadMotionVectors};
+		dispatchFgPrep.depth =  ffxApiGetResourceVK(
+			(void*)convertMVFrameBuf.depth.image,
+			ffxApiGetImageResourceDescriptionVK(convertMVFrameBuf.depth.image, convertMVFrameBuf.depth.createInfo, 0),
+			FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+		dispatchFgPrep.motionVectors = ffxApiGetResourceVK(
+			(void*)convertMVFrameBuf.mv.image,
+			ffxApiGetImageResourceDescriptionVK(convertMVFrameBuf.mv.image, convertMVFrameBuf.mv.createInfo, 0),
+			FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
 		dispatchFgPrep.flags = 0;
 		dispatchFgPrep.jitterOffset.x = 0;
 		dispatchFgPrep.jitterOffset.y = 0;
@@ -663,7 +672,7 @@ public:
 		m_FrameGenerationConfig.onlyPresentGenerated = presentInterpolatedOnly;
 		m_FrameGenerationConfig.frameID = m_FrameID;
 
-		m_FrameGenerationConfig.swapChain = &swapChain;
+		//m_FrameGenerationConfig.swapChain = &swapChain;
 
 		ffxReturnCode_t retCode = ffxConfigure(&m_FrameGenContext, &m_FrameGenerationConfig.header);
 
@@ -673,14 +682,20 @@ public:
 		bool resetFSRFG = false;
 		ffxDispatchDescFrameGeneration dispatchFg{};
 		dispatchFg.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
-		dispatchFg.presentColor = {&loadColorTexture};
+		dispatchFg.presentColor = ffxApiGetResourceVK(
+			(void*)convertMVFrameBuf.color.image,
+			ffxApiGetImageResourceDescriptionVK(convertMVFrameBuf.color.image, convertMVFrameBuf.color.createInfo, 0),
+			FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
 		dispatchFg.numGeneratedFrames = 1;
 		dispatchFg.generationRect.left = 0;
 		dispatchFg.generationRect.top = 0;
 		dispatchFg.generationRect.width = width;
 		dispatchFg.generationRect.height = height;
 		dispatchFg.commandList = fgCmd;
-		dispatchFg.outputs[0] = { swapChain.images[currentBuffer] };
+		dispatchFg.outputs[0] = { swapChain.images[currentBuffer] }; ffxApiGetResourceVK(
+			(void*)swapChain.images[currentBuffer],
+			ffxApiGetImageResourceDescriptionVK(swapChain.images[currentBuffer], convertMVFrameBuf.color.createInfo, 0),
+			FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
 		dispatchFg.frameID = m_FrameID;
 		dispatchFg.reset = resetFSRFG;
 
@@ -926,9 +941,10 @@ public:
 		VulkanExampleBase::prepareFrame();
 
 		VkCommandBuffer fsrCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
-		executeFSR(fsrCmd, drawCmdBuffers[currentBuffer]);
+		VkCommandBuffer fsrFgCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
+		executeFSR(fsrCmd, fsrFgCmd);
 
-		VkCommandBuffer cbf[3] = { convertMVCmdBuffer, fsrCmd, drawCmdBuffers[currentBuffer] };
+		VkCommandBuffer cbf[3] = { convertMVCmdBuffer, fsrCmd, fsrFgCmd };
 		submitInfo.commandBufferCount = 3;
 		submitInfo.pCommandBuffers = cbf;
 		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));

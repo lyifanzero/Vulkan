@@ -48,6 +48,10 @@ public:
 	std::vector<SwapChainBuffer> buffers;
 	uint32_t queueNodeIndex = UINT32_MAX;
 
+	VkSwapchainCreateInfoKHR swapchainCI = {};
+	bool isFrameInterpolation = false;
+	VkImageCreateInfo     imageCI = {};
+
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 	void initSurface(void* platformHandle, void* platformWindow);
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
@@ -103,4 +107,6 @@ public:
 	VkResult queuePresent(VkQueue queue, uint32_t imageIndex, VkSemaphore waitSemaphore = VK_NULL_HANDLE);
 	/* Free all Vulkan resources acquired by the swapchain */
 	void cleanup();
+
+	void setVKSwapChain(VkSwapchainKHR swapChain, bool isFrameInterpolation);
 };
