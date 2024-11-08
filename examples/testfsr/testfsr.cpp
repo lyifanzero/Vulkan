@@ -876,7 +876,7 @@ public:
 		buildCommandBuffers();
 
 		// fsr create context
-		//prepareFSRContext();
+		prepareFSRContext();
 
 		prepared = true;
 	}
