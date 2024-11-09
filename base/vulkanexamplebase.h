@@ -290,6 +290,8 @@ public:
 	/** @brief Setup the vulkan instance, enable required extensions and connect to the physical device (GPU) */
 	bool initVulkan();
 
+	void setFSRSwapchain();
+
 #if defined(_WIN32)
 	void setupConsole(std::string title);
 	void setupDPIAwareness();

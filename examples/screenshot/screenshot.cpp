@@ -11,13 +11,11 @@
 #include "vulkanexamplebase.h"
 #include "VulkanglTFModel.h"
 
-#include "ffx_api/ffx_api.hpp"
-#include "ffx_api/ffx_framegeneration.hpp"
-#include "ffx_api/vk/ffx_api_vk.hpp"
-
 class VulkanExample : public VulkanExampleBase
 {
 public:
+	bool dedicatedComputeQueue{ false };
+
 	vkglTF::Model model;
 
 	struct UniformData {
@@ -392,48 +390,9 @@ public:
 		screenshotSaved = true;
 	}
 
-	void setFSRSwapchain() {
-		VkSwapchainKHR currentSwapchain = swapChain.swapChain;
-
-		ffx::CreateContextDescFrameGenerationSwapChainVK createSwapChainDesc{};
-		createSwapChainDesc.physicalDevice = physicalDevice;
-		createSwapChainDesc.device = device;
-		createSwapChainDesc.swapchain = &currentSwapchain;
-		createSwapChainDesc.createInfo = swapChain.swapchainCI;
-		createSwapChainDesc.allocator = nullptr;
-		createSwapChainDesc.gameQueue.queue = queue;
-		createSwapChainDesc.gameQueue.familyIndex = vulkanDevice->queueFamilyIndices.graphics;
-		createSwapChainDesc.gameQueue.submitFunc = nullptr;
-		//createSwapChainDesc.asyncComputeQueue.queue = ;
-		//createSwapChainDesc.asyncComputeQueue.familyIndex = ;
-		//createSwapChainDesc.asyncComputeQueue.submitFunc = nullptr;
-		createSwapChainDesc.presentQueue.queue = queue;
-		createSwapChainDesc.presentQueue.familyIndex = vulkanDevice->queueFamilyIndices.graphics;
-		createSwapChainDesc.presentQueue.submitFunc = nullptr;
-		createSwapChainDesc.imageAcquireQueue.queue = queue;
-		createSwapChainDesc.imageAcquireQueue.familyIndex = vulkanDevice->queueFamilyIndices.graphics;
-		createSwapChainDesc.imageAcquireQueue.submitFunc = nullptr;
-
-		swapChain.setVKSwapChain(VK_NULL_HANDLE, false);
-
-		ffx::Context m_SwapChainContext;
-		ffx::ReturnCode retCode = ffx::CreateContext(m_SwapChainContext, nullptr, createSwapChainDesc);
-
-		ffx::QueryDescSwapchainReplacementFunctionsVK replacementFunctions{};
-		ffx::Query(m_SwapChainContext, replacementFunctions);
-
-		//setSwapchainMethodsAndContext();
-
-		swapChain.setVKSwapChain(currentSwapchain, true);
-
-	}
-
 	void prepare()
 	{
 		VulkanExampleBase::prepare();
-
-		setFSRSwapchain();
-
 		loadAssets();
 		prepareUniformBuffers();
 		setupDescriptors();
