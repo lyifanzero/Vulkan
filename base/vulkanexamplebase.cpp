@@ -229,7 +229,6 @@ void VulkanExampleBase::setFSRSwapchain() {
 
 	swapChain.setVKSwapChain(VK_NULL_HANDLE, false);
 
-	ffx::Context m_SwapChainContext;
 	ffx::ReturnCode retCode = ffx::CreateContext(m_SwapChainContext, nullptr, createSwapChainDesc);
 
 	ffx::QueryDescSwapchainReplacementFunctionsVK replacementFunctions{};

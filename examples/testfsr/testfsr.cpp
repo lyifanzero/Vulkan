@@ -11,9 +11,9 @@
 #include "vulkanexamplebase.h"
 #include "VulkanglTFModel.h"
 
-#include "ffx_api/ffx_api.h"
-#include "ffx_api/ffx_framegeneration.h"
-#include "ffx_api/vk/ffx_api_vk.h"
+#include "ffx_api/ffx_api.hpp"
+#include "ffx_api/ffx_framegeneration.hpp"
+#include "ffx_api/vk/ffx_api_vk.hpp"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -25,6 +25,8 @@ class VulkanExample : public VulkanExampleBase
 {
 public:
 	//
+	VkPhysicalDeviceTimelineSemaphoreFeatures timelineSemaphoreFeatures = {};
+
 	ffxContext m_FrameGenContext;
 	ffxConfigureDescFrameGeneration m_FrameGenerationConfig{};
 	uint64_t m_FrameID = 0;
@@ -90,6 +92,14 @@ public:
 			loadDepthTexture.destroy();
 			loadMotionVectors.destroy();
 		}
+	}
+
+	void getEnabledFeatures() override {
+		timelineSemaphoreFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+		timelineSemaphoreFeatures.pNext = NULL;
+		timelineSemaphoreFeatures.timelineSemaphore = VK_TRUE;
+
+		deviceCreatepNextChain = &timelineSemaphoreFeatures;
 	}
 
 	void getEnabledExtensions() override {
@@ -587,14 +597,14 @@ public:
 	}
 
 	void prepareFSRContext() {
-		ffxCreateBackendVKDesc backendDesc{};
+		ffx::CreateBackendVKDesc backendDesc{};
 		backendDesc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK;
 		backendDesc.vkDevice = device;
 		backendDesc.vkPhysicalDevice = physicalDevice;
 		backendDesc.vkDeviceProcAddr = vkGetDeviceProcAddr;
 		
 		// Create the FrameGen context
-		ffxCreateContextDescFrameGeneration createFg{};
+		ffx::CreateContextDescFrameGeneration createFg{};
 		createFg.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
 		createFg.displaySize = { width, height };
 		createFg.maxRenderSize = { width, height };
@@ -612,9 +622,7 @@ public:
 		// Surface format: one of the values from FfxApiSurfaceFormat
 		createFg.backBufferFormat = FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM;  // Keep this same with type of swapchain backbuffer or create a new one
 
-		// FIXME: how to set backendDesc, now crash here
-		createFg.header.pNext = &backendDesc.header;
-		ffxReturnCode_t retCode = ffxCreateContext(&m_FrameGenContext, &createFg.header, nullptr);
+		ffx::ReturnCode retCode = ffx::CreateContext(m_FrameGenContext, nullptr, createFg, backendDesc);
 		// Check if retCode == ffx::ReturnCode::OK
 
 		m_FrameGenerationConfig.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
@@ -625,15 +633,15 @@ public:
 		m_FrameGenerationConfig.frameGenerationCallbackUserContext = &m_FrameGenContext;
 		m_FrameGenerationConfig.presentCallback = nullptr;
 		m_FrameGenerationConfig.presentCallbackUserContext = nullptr;
-		//m_FrameGenerationConfig.swapChain = &swapChain;
+		m_FrameGenerationConfig.swapChain = swapChain.swapChain;
 		m_FrameGenerationConfig.frameID = m_FrameID;
 
-		retCode = ffxConfigure(&m_FrameGenContext, &m_FrameGenerationConfig.header);
+		retCode = ffx::Configure(m_FrameGenContext, m_FrameGenerationConfig);
 	}
 
-	void executeFSR(VkCommandBuffer prepCmd, VkCommandBuffer fgCmd) {
+	void executeFSR(VkCommandBuffer prepCmd) {
 		//
-		ffxDispatchDescFrameGenerationPrepare dispatchFgPrep{};
+		ffx::DispatchDescFrameGenerationPrepare dispatchFgPrep{};
 		dispatchFgPrep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
 		dispatchFgPrep.commandList = prepCmd;
 		dispatchFgPrep.depth =  ffxApiGetResourceVK(
@@ -659,6 +667,7 @@ public:
 		dispatchFgPrep.frameID = m_FrameID;
 
 		bool presentInterpolatedOnly = false;
+		bool useCallback = false;
 		//
 		m_FrameGenerationConfig.frameGenerationEnabled = true;
 		m_FrameGenerationConfig.flags = 0;
@@ -667,16 +676,26 @@ public:
 		m_FrameGenerationConfig.generationRect.top = 0;
 		m_FrameGenerationConfig.generationRect.width = width;
 		m_FrameGenerationConfig.generationRect.height = height;
-		m_FrameGenerationConfig.frameGenerationCallback = nullptr;
-		m_FrameGenerationConfig.frameGenerationCallbackUserContext = nullptr;
+		if (useCallback) {
+			m_FrameGenerationConfig.frameGenerationCallback = [](ffxDispatchDescFrameGeneration* params, void* pUserCtx) -> ffxReturnCode_t
+				{
+					return ffxDispatch(reinterpret_cast<ffxContext*>(pUserCtx), &params->header);
+				};
+			m_FrameGenerationConfig.frameGenerationCallbackUserContext = &m_FrameGenContext;
+		}
+		else {
+			m_FrameGenerationConfig.frameGenerationCallback = nullptr;
+			m_FrameGenerationConfig.frameGenerationCallbackUserContext = nullptr;
+		}
+		
 		m_FrameGenerationConfig.onlyPresentGenerated = presentInterpolatedOnly;
 		m_FrameGenerationConfig.frameID = m_FrameID;
 
-		//m_FrameGenerationConfig.swapChain = &swapChain;
+		m_FrameGenerationConfig.swapChain = swapChain.swapChain;
 
-		ffxReturnCode_t retCode = ffxConfigure(&m_FrameGenContext, &m_FrameGenerationConfig.header);
+		ffx::ReturnCode retCode = ffx::Configure(m_FrameGenContext, m_FrameGenerationConfig);
 
-		retCode = ffxDispatch(&m_FrameGenContext, &dispatchFgPrep.header);
+		retCode = ffx::Dispatch(m_FrameGenContext, dispatchFgPrep);
 
 		//
 		bool resetFSRFG = false;
@@ -691,19 +710,28 @@ public:
 		dispatchFg.generationRect.top = 0;
 		dispatchFg.generationRect.width = width;
 		dispatchFg.generationRect.height = height;
-		dispatchFg.commandList = fgCmd;
+		/*dispatchFg.commandList = fgCmd;
 		dispatchFg.outputs[0] = { swapChain.images[currentBuffer] }; ffxApiGetResourceVK(
 			(void*)swapChain.images[currentBuffer],
 			ffxApiGetImageResourceDescriptionVK(swapChain.images[currentBuffer], convertMVFrameBuf.color.createInfo, 0),
-			FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+			FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);*/
+
+		ffx::QueryDescFrameGenerationSwapChainInterpolationCommandListVK queryCmdList{};
+		queryCmdList.pOutCommandList = &dispatchFg.commandList;
+		ffx::Query(m_SwapChainContext, queryCmdList);
+
+		ffx::QueryDescFrameGenerationSwapChainInterpolationTextureVK queryFiTexture{};
+		queryFiTexture.pOutTexture = &dispatchFg.outputs[0];
+		ffx::Query(m_SwapChainContext, queryFiTexture);
+
 		dispatchFg.frameID = m_FrameID;
 		dispatchFg.reset = resetFSRFG;
 
-		retCode = ffxDispatch(&m_FrameGenContext, &dispatchFg.header);
+		retCode = ffx::Dispatch(m_FrameGenContext, dispatchFg);
 	}
 
 	void destroyFSR() {
-		ffxDestroyContext(&m_FrameGenContext, nullptr);
+		ffx::DestroyContext(m_FrameGenContext, nullptr);
 	}
 
 	// Take a screenshot from the current swapchain image
@@ -941,11 +969,10 @@ public:
 		VulkanExampleBase::prepareFrame();
 
 		VkCommandBuffer fsrCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
-		VkCommandBuffer fsrFgCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
-		executeFSR(fsrCmd, fsrFgCmd);
+		executeFSR(fsrCmd);
 
-		VkCommandBuffer cbf[3] = { convertMVCmdBuffer, fsrCmd, fsrFgCmd };
-		submitInfo.commandBufferCount = 3;
+		VkCommandBuffer cbf[2] = { convertMVCmdBuffer, fsrCmd };
+		submitInfo.commandBufferCount = 2;
 		submitInfo.pCommandBuffers = cbf;
 		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
 

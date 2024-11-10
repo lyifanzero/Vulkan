@@ -112,6 +112,7 @@ protected:
 	VkPhysicalDeviceMemoryProperties deviceMemoryProperties{};
 	/** @brief Set of physical device features to be enabled for this example (must be set in the derived constructor) */
 	VkPhysicalDeviceFeatures enabledFeatures{};
+	VkPhysicalDeviceVulkan12Features vulkan12Features{};
 	/** @brief Set of device extensions to be enabled for this example (must be set in the derived constructor) */
 	std::vector<const char*> enabledDeviceExtensions;
 	std::vector<const char*> enabledInstanceExtensions;
@@ -155,6 +156,8 @@ protected:
 	std::vector<VkFence> waitFences;
 	bool requiresStencil{ false };
 public:
+	ffx::Context m_SwapChainContext;
+
 	bool prepared = false;
 	bool resized = false;
 	bool viewUpdated = false;
