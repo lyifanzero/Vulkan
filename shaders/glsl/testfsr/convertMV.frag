@@ -28,12 +28,15 @@ void main()
         vec4 prevClipPos = ubo.prevVpMatrix * worldPos;
         prevClipPos /= prevClipPos.w;
 
-        vec2 mv_static = (currentClipPos.xy - prevClipPos.xy) * 0.2495000064373016357421875 + 0.49999237060546875;
-        mv = uvec2(mv_static * 65535.0 + vec2(0.5));
-    } 
-    outMV = vec2(mv) * vec2(1.525902189314365386962890625e-05 * 4.008016109466552734375) - vec2(2.0039775371551513671875);
+        //vec2 mv_static = (currentClipPos.xy - prevClipPos.xy) * 0.2495000064373016357421875 + 0.49999237060546875;
+        //uvec2 mv_s = uvec2(mv_static * 65535.0 + vec2(0.5));
+        //outMV = vec2(mv_s) * vec2(1.525902189314365386962890625e-05 * 4.008016109466552734375) - vec2(2.0039775371551513671875);
+        outMV = (currentClipPos.xy - prevClipPos.xy) * vec2(-0.5, 0.5);
+    } else {
+        vec2 mv_n = vec2(mv) * vec2(1.525902189314365386962890625e-05 * 4.008016109466552734375) - vec2(2.0039775371551513671875);
+        outMV = mv_n * vec2(-0.5, 0.5);
+    }
 
-    outMV = vec2(float(mv.x), float(depth) / 4294967296.0);
     outColor = vec4(color, 1.0);
     gl_FragDepth = depth;
 }

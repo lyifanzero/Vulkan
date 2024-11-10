@@ -604,7 +604,10 @@ public:
 		inFile.read(reinterpret_cast<char*>(matrix.data()), 20 * sizeof(float));
 		inFile.close();
 
-		mat = glm::make_mat4(matrix.data());
+		glm::mat4 view = glm::mat4(1.0);
+		std::vector<float> translated = { matrix[16], matrix[17], matrix[18], matrix[19] };
+		view += glm::make_vec4(translated.data());
+		mat = glm::make_mat4(matrix.data()) * view;
 	}
 
 	void loadResource(int frameIndex) {
@@ -697,7 +700,7 @@ public:
 		dispatchFgPrep.frameTimeDelta = 33.3;
 		dispatchFgPrep.renderSize.width = width;
 		dispatchFgPrep.renderSize.height = height;
-		dispatchFgPrep.cameraFovAngleVertical = 45;
+		dispatchFgPrep.cameraFovAngleVertical = 1.5707963;
 		dispatchFgPrep.cameraFar = 0.0;
 		dispatchFgPrep.cameraNear = 2097152.0;
 		dispatchFgPrep.viewSpaceToMetersFactor = 0.f;

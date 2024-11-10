@@ -217,15 +217,17 @@ void VulkanExampleBase::setFSRSwapchain() {
 	createSwapChainDesc.gameQueue.queue = queue;
 	createSwapChainDesc.gameQueue.familyIndex = vulkanDevice->queueFamilyIndices.graphics;
 	createSwapChainDesc.gameQueue.submitFunc = nullptr;
-	vkGetDeviceQueue(device, vulkanDevice->queueFamilyIndices.graphics, 0, &computeQueue);
+	vkGetDeviceQueue(device, vulkanDevice->queueFamilyIndices.compute, 0, &computeQueue);
 	createSwapChainDesc.asyncComputeQueue.queue = computeQueue;
 	createSwapChainDesc.asyncComputeQueue.familyIndex = vulkanDevice->queueFamilyIndices.compute;
 	createSwapChainDesc.asyncComputeQueue.submitFunc = nullptr;
-	createSwapChainDesc.presentQueue.queue = computeQueue;
-	createSwapChainDesc.presentQueue.familyIndex = vulkanDevice->queueFamilyIndices.compute;
+	vkGetDeviceQueue(device, vulkanDevice->queueFamilyIndices.compute, 1, &presentQueue);
+	createSwapChainDesc.presentQueue.queue = presentQueue;
+	createSwapChainDesc.presentQueue.familyIndex = vulkanDevice->queueFamilyIndices.fsrPresent;
 	createSwapChainDesc.presentQueue.submitFunc = nullptr;
-	createSwapChainDesc.imageAcquireQueue.queue = computeQueue;
-	createSwapChainDesc.imageAcquireQueue.familyIndex = vulkanDevice->queueFamilyIndices.compute;
+	vkGetDeviceQueue(device, vulkanDevice->queueFamilyIndices.compute, 2, &imageAcquireQueue);
+	createSwapChainDesc.imageAcquireQueue.queue = imageAcquireQueue;
+	createSwapChainDesc.imageAcquireQueue.familyIndex = vulkanDevice->queueFamilyIndices.fsrImageAcquire;
 	createSwapChainDesc.imageAcquireQueue.submitFunc = nullptr;
 
 	swapChain.setVKSwapChain(VK_NULL_HANDLE, false);

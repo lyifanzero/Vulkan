@@ -215,6 +215,14 @@ namespace vks
 				queueInfo.queueFamilyIndex = queueFamilyIndices.compute;
 				queueInfo.queueCount = 1;
 				queueInfo.pQueuePriorities = &defaultQueuePriority;
+
+				// for fsr
+				queueFamilyIndices.fsrPresent = queueFamilyIndices.compute;
+				queueFamilyIndices.fsrImageAcquire = queueFamilyIndices.compute;
+				queueInfo.queueCount = 3;
+				float queueProperties[3] = { defaultQueuePriority , defaultQueuePriority , defaultQueuePriority };
+				queueInfo.pQueuePriorities = queueProperties;
+
 				queueCreateInfos.push_back(queueInfo);
 			}
 		}
