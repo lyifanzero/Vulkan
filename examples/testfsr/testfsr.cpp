@@ -30,6 +30,8 @@ public:
 	ffxContext m_FrameGenContext;
 	ffxConfigureDescFrameGeneration m_FrameGenerationConfig{};
 	uint64_t m_FrameID = 0;
+	bool resourceLoaded = false;
+	bool descriptorSetUpdated = false;
 
 	vks::Texture2D loadColorTexture;
 	vks::Texture2D loadDepthTexture;
@@ -397,6 +399,10 @@ public:
 		VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
 		VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
 
+		updateConvertMVDescriptorSet();
+	}
+
+	void updateConvertMVDescriptorSet() {
 		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
 			// Binding 0: Fragment shader uniform buffer
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformBuffer.descriptor),
@@ -408,6 +414,7 @@ public:
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3, &loadDepthTexture.descriptor),
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
+		descriptorSetUpdated = true;
 	}
 
 	void preparePipelines()
@@ -471,9 +478,6 @@ public:
 		// convertMV fragment shader
 		vulkanDevice->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &uniformBuffer, sizeof(UniformData));
 		VK_CHECK_RESULT(uniformBuffer.map());
-
-		// Update
-		updateUniformBuffers();
 	}
 
 	void updateUniformBuffers()
@@ -482,6 +486,11 @@ public:
 		//uniformData.viewProjection = camera.matrices.perspective;
 		//uniformData.prevViewProjection = camera.matrices.perspective;
 		uniformBuffer.copyTo(&uniformData, sizeof(UniformData));
+
+		if (!descriptorSetUpdated) {
+			updateConvertMVDescriptorSet();
+			descriptorSetUpdated = false;
+		}
 	}
 
 	std::vector<unsigned char> readFile(const std::string& filename) {
@@ -599,6 +608,9 @@ public:
 	}
 
 	void loadResource(int frameIndex) {
+		if (resourceLoaded) {
+			return;
+		}
 		std::string filePath = R"(E:\dwarping\dwarping_1011_30fps)";
 		std::string fileName;
 		int index = 102 + frameIndex;
@@ -612,6 +624,7 @@ public:
 		loadMatrixFromFile(uniformData.viewProjection, fileName);
 		fileName = filePath + "/vpMatrix/vpMatrix_frame" + std::to_string(index - 1) + ".bin";
 		loadMatrixFromFile(uniformData.prevViewProjection, fileName);
+		resourceLoaded = true;
 	}
 
 	void prepareFSRContext() {
@@ -749,7 +762,7 @@ public:
 			dispatchFg.frameID = m_FrameID;
 			dispatchFg.reset = resetFSRFG;
 
-			//retCode = ffx::Dispatch(m_FrameGenContext, dispatchFg);
+			retCode = ffx::Dispatch(m_FrameGenContext, dispatchFg);
 		}
 	}
 
@@ -991,6 +1004,8 @@ public:
 	{
 		VulkanExampleBase::prepareFrame();
 
+		loadResource(m_FrameID);
+
 		executeFSR();
 
 		VkCommandBuffer cbf[2] = { convertMVCmdBuffer, fsrPrepCmd };
@@ -1011,7 +1026,6 @@ public:
 		submitInfo.pSignalSemaphores = &semaphores.renderComplete;
 		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
 
-
 		VulkanExampleBase::submitFrame();
 	}
 
@@ -1022,6 +1036,7 @@ public:
 		updateUniformBuffers();
 		draw();
 		m_FrameID++;
+		resourceLoaded = false;
 	}
 
 	virtual void OnUpdateUIOverlay(vks::UIOverlay *overlay)
