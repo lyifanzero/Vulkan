@@ -32,6 +32,10 @@ typedef struct _SwapChainBuffers {
 	VkImageView view;
 } SwapChainBuffer;
 
+namespace vks {
+	class VulkanDevice;
+};
+
 class VulkanSwapChain
 {
 private: 
@@ -40,6 +44,8 @@ private:
 	VkPhysicalDevice physicalDevice;
 	VkSurfaceKHR surface;
 public:
+	vks::VulkanDevice* vulkanDevice;
+
 	VkFormat colorFormat;
 	VkColorSpaceKHR colorSpace;
 	VkSwapchainKHR swapChain = VK_NULL_HANDLE;	
@@ -109,4 +115,6 @@ public:
 	void cleanup();
 
 	void setVKSwapChain(VkSwapchainKHR swapChain, bool isFrameInterpolation);
+	void createImages();
+	void destroyImages();
 };

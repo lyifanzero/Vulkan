@@ -586,4 +586,20 @@ namespace vks
 		throw std::runtime_error("Could not find a matching depth format");
 	}
 
+	void VulkanDevice::setSwapchainMethodsAndContext(PFN_vkGetSwapchainImagesKHR getSwapchainImagesKHR,
+													PFN_vkAcquireNextImageKHR    acquireNextImageKHR,
+													PFN_vkQueuePresentKHR        queuePresentKHR,
+													PFN_vkCreateSwapchainFFXAPI  createSwapchainFFXAPI,
+													PFN_vkDestroySwapchainFFXAPI destroySwapchainFFXAPI,
+													PFN_getLastPresentCountFFXAPI getLastPresentCountFFXAPI,
+													void* pSwapchainContext) {
+		m_vkCreateSwapchainFFXAPI = createSwapchainFFXAPI;
+		m_vkDestroySwapchainFFXAPI = destroySwapchainFFXAPI;
+		m_vkGetSwapchainImagesKHR = getSwapchainImagesKHR;
+		m_vkAcquireNextImageKHR = acquireNextImageKHR;
+		m_vkQueuePresentKHR = queuePresentKHR;
+		m_getLastPresentCountFFXAPI = getLastPresentCountFFXAPI;
+		m_pSwapchainContext = pSwapchainContext;
+	}
+
 };

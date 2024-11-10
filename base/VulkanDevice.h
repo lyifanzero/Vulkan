@@ -17,6 +17,8 @@
 #include <assert.h>
 #include <exception>
 
+#include <ffx_api/vk/ffx_api_vk.hpp>
+
 namespace vks
 {
 struct VulkanDevice
@@ -65,5 +67,58 @@ struct VulkanDevice
 	void            flushCommandBuffer(VkCommandBuffer commandBuffer, VkQueue queue, bool free = true);
 	bool            extensionSupported(std::string extension);
 	VkFormat        getSupportedDepthFormat(bool checkSamplingSupport);
+
+	// TEST FSR
+	void            setSwapchainMethodsAndContext(PFN_vkGetSwapchainImagesKHR    getSwapchainImagesKHR,
+													PFN_vkAcquireNextImageKHR    acquireNextImageKHR,
+													PFN_vkQueuePresentKHR        queuePresentKHR,
+													PFN_vkCreateSwapchainFFXAPI  createSwapchainFFXAPI,
+													PFN_vkDestroySwapchainFFXAPI destroySwapchainFFXAPI,
+													PFN_getLastPresentCountFFXAPI      getLastPresentCountFFXAPI,
+													void*                        pSwapchainContext);
+	// swapchain related functions
+	PFN_vkCreateSwapchainFFXAPI   m_vkCreateSwapchainFFXAPI = nullptr;  // When using FFX API
+	PFN_vkDestroySwapchainFFXAPI  m_vkDestroySwapchainFFXAPI = nullptr;  // When using FFX API
+	PFN_vkGetSwapchainImagesKHR   m_vkGetSwapchainImagesKHR = nullptr;
+	PFN_vkAcquireNextImageKHR     m_vkAcquireNextImageKHR = nullptr;
+	PFN_vkQueuePresentKHR         m_vkQueuePresentKHR = nullptr;
+	PFN_getLastPresentCountFFXAPI m_getLastPresentCountFFXAPI = nullptr;  // When using FFX API
+	void* m_pSwapchainContext = nullptr;
+
+	VkResult createSwapchainKHR(const VkSwapchainCreateInfoKHR* pCreateInfo,
+		const VkAllocationCallbacks* pAllocator,
+		VkSwapchainKHR* pSwapchain) const {
+		if (m_vkCreateSwapchainFFXAPI != nullptr) {
+			return m_vkCreateSwapchainFFXAPI(logicalDevice, pCreateInfo, pAllocator, pSwapchain, m_pSwapchainContext);
+		}
+		return vkCreateSwapchainKHR(logicalDevice, pCreateInfo, pAllocator, pSwapchain);
+	}
+
+	void destroySwapchainKHR(VkSwapchainKHR swapchain, const VkAllocationCallbacks* pAllocator) const {
+		if (m_vkDestroySwapchainFFXAPI != nullptr) {
+			m_vkDestroySwapchainFFXAPI(logicalDevice, swapchain, pAllocator, m_pSwapchainContext);
+		}
+		return vkDestroySwapchainKHR(logicalDevice, swapchain, pAllocator);
+	}
+
+	VkResult getSwapchainImagesKHR(VkSwapchainKHR swapchain, uint32_t* pSwapchainImageCount, VkImage* pSwapchainImages) const
+	{
+		if (m_vkGetSwapchainImagesKHR != nullptr)
+			return m_vkGetSwapchainImagesKHR(logicalDevice, swapchain, pSwapchainImageCount, pSwapchainImages);
+		return vkGetSwapchainImagesKHR(logicalDevice, swapchain, pSwapchainImageCount, pSwapchainImages);
+	}
+	VkResult acquireNextImageKHR(VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex) const
+	{
+		if (m_vkAcquireNextImageKHR != nullptr)
+			return m_vkAcquireNextImageKHR(logicalDevice, swapchain, timeout, semaphore, fence, pImageIndex);
+		return vkAcquireNextImageKHR(logicalDevice, swapchain, timeout, semaphore, fence, pImageIndex);
+	}
+	VkResult queuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo) const
+	{
+		if (m_vkQueuePresentKHR != nullptr)
+			return m_vkQueuePresentKHR(queue, pPresentInfo);
+		return vkQueuePresentKHR(queue, pPresentInfo);
+	}
+
 };
 }        // namespace vks

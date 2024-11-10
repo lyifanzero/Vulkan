@@ -9,6 +9,7 @@
 */
 
 #include "VulkanSwapChain.h"
+#include "VulkanDevice.h"
 
 /** @brief Creates the platform specific surface abstraction of the native platform window used for presentation */	
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
@@ -345,7 +346,7 @@ void VulkanSwapChain::create(uint32_t *width, uint32_t *height, bool vsync, bool
 		swapchainCI.imageUsage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	}
 
-	VK_CHECK_RESULT(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapChain));
+	VK_CHECK_RESULT(vulkanDevice->createSwapchainKHR(&swapchainCI, nullptr, &swapChain));
 
 	// If an existing swap chain is re-created, destroy the old swap chain
 	// This also cleans up all the presentable images
@@ -355,13 +356,17 @@ void VulkanSwapChain::create(uint32_t *width, uint32_t *height, bool vsync, bool
 		{
 			vkDestroyImageView(device, buffers[i].view, nullptr);
 		}
-		vkDestroySwapchainKHR(device, oldSwapchain, nullptr);
+		vulkanDevice->destroySwapchainKHR(oldSwapchain, nullptr);
 	}
-	VK_CHECK_RESULT(vkGetSwapchainImagesKHR(device, swapChain, &imageCount, NULL));
+	createImages();
+}
+
+void VulkanSwapChain::createImages() {
+	VK_CHECK_RESULT(vulkanDevice->getSwapchainImagesKHR(swapChain, &imageCount, NULL));
 
 	// Get the swap chain images
 	images.resize(imageCount);
-	VK_CHECK_RESULT(vkGetSwapchainImagesKHR(device, swapChain, &imageCount, images.data()));
+	VK_CHECK_RESULT(vulkanDevice->getSwapchainImagesKHR(swapChain, &imageCount, images.data()));
 
 	// Get the swap chain buffers containing the image and imageview
 	buffers.resize(imageCount);
@@ -393,11 +398,18 @@ void VulkanSwapChain::create(uint32_t *width, uint32_t *height, bool vsync, bool
 	}
 }
 
+void VulkanSwapChain::destroyImages() {
+	for (uint32_t i = 0; i < imageCount; i++)
+	{
+		vkDestroyImageView(device, buffers[i].view, nullptr);
+	}
+}
+
 VkResult VulkanSwapChain::acquireNextImage(VkSemaphore presentCompleteSemaphore, uint32_t *imageIndex)
 {
 	// By setting timeout to UINT64_MAX we will always wait until the next image has been acquired or an actual error is thrown
 	// With that we don't have to handle VK_NOT_READY
-	return vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, presentCompleteSemaphore, (VkFence)nullptr, imageIndex);
+	return vulkanDevice->acquireNextImageKHR(swapChain, UINT64_MAX, presentCompleteSemaphore, (VkFence)nullptr, imageIndex);
 }
 
 VkResult VulkanSwapChain::queuePresent(VkQueue queue, uint32_t imageIndex, VkSemaphore waitSemaphore)
@@ -414,7 +426,7 @@ VkResult VulkanSwapChain::queuePresent(VkQueue queue, uint32_t imageIndex, VkSem
 		presentInfo.pWaitSemaphores = &waitSemaphore;
 		presentInfo.waitSemaphoreCount = 1;
 	}
-	return vkQueuePresentKHR(queue, &presentInfo);
+	return vulkanDevice->queuePresentKHR(queue, &presentInfo);
 }
 
 
@@ -429,7 +441,7 @@ void VulkanSwapChain::cleanup()
 	}
 	if (surface != VK_NULL_HANDLE)
 	{
-		vkDestroySwapchainKHR(device, swapChain, nullptr);
+		vulkanDevice->destroySwapchainKHR(swapChain, nullptr);
 		vkDestroySurfaceKHR(instance, surface, nullptr);
 	}
 	surface = VK_NULL_HANDLE;
@@ -439,13 +451,13 @@ void VulkanSwapChain::cleanup()
 void VulkanSwapChain::setVKSwapChain(VkSwapchainKHR swapchain, bool isFrameInterpolation = false) {
 	if (swapchain != VK_NULL_HANDLE) {
 		this->swapChain = swapchain;
-		//createSwapChainRenderTargets();
 		isFrameInterpolation = isFrameInterpolation;
+		createImages();
 	}
 	else {
-		//destroySwapChainRenderTargets();
 		this->swapChain = swapchain;
 		isFrameInterpolation = false;
+		destroyImages();
 	}
 }
 

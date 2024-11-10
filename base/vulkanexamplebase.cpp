@@ -213,6 +213,7 @@ void VulkanExampleBase::setFSRSwapchain() {
 	createSwapChainDesc.swapchain = &currentSwapchain;
 	createSwapChainDesc.createInfo = swapChain.swapchainCI;
 	createSwapChainDesc.allocator = nullptr;
+	// FIXME: Get compute queue for fsr
 	createSwapChainDesc.gameQueue.queue = queue;
 	createSwapChainDesc.gameQueue.familyIndex = vulkanDevice->queueFamilyIndices.graphics;
 	createSwapChainDesc.gameQueue.submitFunc = nullptr;
@@ -234,7 +235,14 @@ void VulkanExampleBase::setFSRSwapchain() {
 	ffx::QueryDescSwapchainReplacementFunctionsVK replacementFunctions{};
 	ffx::Query(m_SwapChainContext, replacementFunctions);
 
-	//setSwapchainMethodsAndContext();
+	vulkanDevice->setSwapchainMethodsAndContext(
+		replacementFunctions.pOutGetSwapchainImagesKHR,
+		replacementFunctions.pOutAcquireNextImageKHR,
+		replacementFunctions.pOutQueuePresentKHR,
+		replacementFunctions.pOutCreateSwapchainFFXAPI,
+		replacementFunctions.pOutDestroySwapchainFFXAPI,
+		replacementFunctions.pOutGetLastPresentCountFFXAPI,
+		m_SwapChainContext);
 
 	swapChain.setVKSwapChain(currentSwapchain, true);
 }
@@ -244,7 +252,7 @@ void VulkanExampleBase::prepare()
 	initSwapchain();
 	createCommandPool();
 	setupSwapChain();
-	//setFSRSwapchain();
+	setFSRSwapchain();
 	createCommandBuffers();
 	createSynchronizationPrimitives();
 	setupDepthStencil();
@@ -3302,6 +3310,7 @@ void VulkanExampleBase::windowResized() {}
 
 void VulkanExampleBase::initSwapchain()
 {
+	swapChain.vulkanDevice = vulkanDevice;
 #if defined(_WIN32)
 	swapChain.initSurface(windowInstance, window);
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
