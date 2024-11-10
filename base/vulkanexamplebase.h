@@ -122,6 +122,7 @@ protected:
 	VkDevice device{ VK_NULL_HANDLE };
 	// Handle to the device graphics queue that command buffers are submitted to
 	VkQueue queue{ VK_NULL_HANDLE };
+	VkQueue computeQueue{ VK_NULL_HANDLE };
 	// Depth buffer format (selected during Vulkan initialization)
 	VkFormat depthFormat;
 	// Command buffer pool

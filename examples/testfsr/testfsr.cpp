@@ -66,6 +66,7 @@ public:
 	VkSampler mvSampler{ VK_NULL_HANDLE };
 
 	VkCommandBuffer convertMVCmdBuffer{ VK_NULL_HANDLE };
+	VkCommandBuffer fsrPrepCmd{ VK_NULL_HANDLE };
 
 	VkSemaphore convertMVSemaphore{ VK_NULL_HANDLE };
 
@@ -230,7 +231,7 @@ public:
 		// Formats
 		attachmentDescs[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		attachmentDescs[1].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		attachmentDescs[2].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		attachmentDescs[2].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		// FinalLayout
 		attachmentDescs[0].format = convertMVFrameBuf.mv.format;
 		attachmentDescs[1].format = convertMVFrameBuf.color.format;
@@ -639,11 +640,17 @@ public:
 		retCode = ffx::Configure(m_FrameGenContext, m_FrameGenerationConfig);
 	}
 
-	void executeFSR(VkCommandBuffer prepCmd) {
+	void executeFSR() {
+		//
+		if (fsrPrepCmd == VK_NULL_HANDLE) {
+			fsrPrepCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, false);
+		}
+		VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
+		VkResult result = vkBeginCommandBuffer(fsrPrepCmd, &cmdBufInfo);
 		//
 		ffx::DispatchDescFrameGenerationPrepare dispatchFgPrep{};
 		dispatchFgPrep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
-		dispatchFgPrep.commandList = prepCmd;
+		dispatchFgPrep.commandList = fsrPrepCmd;
 		dispatchFgPrep.depth =  ffxApiGetResourceVK(
 			(void*)convertMVFrameBuf.depth.image,
 			ffxApiGetImageResourceDescriptionVK(convertMVFrameBuf.depth.image, convertMVFrameBuf.depth.createInfo, 0),
@@ -666,7 +673,7 @@ public:
 		dispatchFgPrep.viewSpaceToMetersFactor = 0.f;
 		dispatchFgPrep.frameID = m_FrameID;
 
-		bool presentInterpolatedOnly = false;
+		bool presentInterpolatedOnly = true;
 		bool useCallback = false;
 		//
 		m_FrameGenerationConfig.frameGenerationEnabled = true;
@@ -697,37 +704,36 @@ public:
 
 		retCode = ffx::Dispatch(m_FrameGenContext, dispatchFgPrep);
 
+		result = vkEndCommandBuffer(fsrPrepCmd);
+
 		//
-		bool resetFSRFG = false;
-		ffxDispatchDescFrameGeneration dispatchFg{};
-		dispatchFg.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
-		dispatchFg.presentColor = ffxApiGetResourceVK(
-			(void*)convertMVFrameBuf.color.image,
-			ffxApiGetImageResourceDescriptionVK(convertMVFrameBuf.color.image, convertMVFrameBuf.color.createInfo, 0),
-			FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-		dispatchFg.numGeneratedFrames = 1;
-		dispatchFg.generationRect.left = 0;
-		dispatchFg.generationRect.top = 0;
-		dispatchFg.generationRect.width = width;
-		dispatchFg.generationRect.height = height;
-		/*dispatchFg.commandList = fgCmd;
-		dispatchFg.outputs[0] = { swapChain.images[currentBuffer] }; ffxApiGetResourceVK(
-			(void*)swapChain.images[currentBuffer],
-			ffxApiGetImageResourceDescriptionVK(swapChain.images[currentBuffer], convertMVFrameBuf.color.createInfo, 0),
-			FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);*/
+		if (!useCallback) {
+			bool resetFSRFG = false;
+			ffxDispatchDescFrameGeneration dispatchFg{};
+			dispatchFg.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
+			dispatchFg.presentColor = ffxApiGetResourceVK(
+				(void*)loadColorTexture.image,
+				ffxApiGetImageResourceDescriptionVK(loadColorTexture.image, loadColorTexture.createInfo, 0),
+				FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+			dispatchFg.numGeneratedFrames = 1;
+			dispatchFg.generationRect.left = 0;
+			dispatchFg.generationRect.top = 0;
+			dispatchFg.generationRect.width = width;
+			dispatchFg.generationRect.height = height;
 
-		ffx::QueryDescFrameGenerationSwapChainInterpolationCommandListVK queryCmdList{};
-		queryCmdList.pOutCommandList = &dispatchFg.commandList;
-		ffx::Query(m_SwapChainContext, queryCmdList);
+			ffx::QueryDescFrameGenerationSwapChainInterpolationCommandListVK queryCmdList{};
+			queryCmdList.pOutCommandList = &dispatchFg.commandList;
+			ffx::Query(m_SwapChainContext, queryCmdList);
 
-		ffx::QueryDescFrameGenerationSwapChainInterpolationTextureVK queryFiTexture{};
-		queryFiTexture.pOutTexture = &dispatchFg.outputs[0];
-		ffx::Query(m_SwapChainContext, queryFiTexture);
+			ffx::QueryDescFrameGenerationSwapChainInterpolationTextureVK queryFiTexture{};
+			queryFiTexture.pOutTexture = &dispatchFg.outputs[0];
+			ffx::Query(m_SwapChainContext, queryFiTexture);
 
-		dispatchFg.frameID = m_FrameID;
-		dispatchFg.reset = resetFSRFG;
+			dispatchFg.frameID = m_FrameID;
+			dispatchFg.reset = resetFSRFG;
 
-		retCode = ffx::Dispatch(m_FrameGenContext, dispatchFg);
+			//retCode = ffx::Dispatch(m_FrameGenContext, dispatchFg);
+		}
 	}
 
 	void destroyFSR() {
@@ -968,13 +974,26 @@ public:
 	{
 		VulkanExampleBase::prepareFrame();
 
-		VkCommandBuffer fsrCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
-		executeFSR(fsrCmd);
+		executeFSR();
 
-		VkCommandBuffer cbf[2] = { convertMVCmdBuffer, fsrCmd };
-		submitInfo.commandBufferCount = 2;
-		submitInfo.pCommandBuffers = cbf;
+		VkCommandBuffer cbf[2] = { convertMVCmdBuffer, fsrPrepCmd };
+
+		// convert mv
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &convertMVCmdBuffer;
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pWaitSemaphores = &semaphores.presentComplete;
+		submitInfo.pSignalSemaphores = &convertMVSemaphore;
 		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+
+		// fsr prep
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &fsrPrepCmd;
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pWaitSemaphores = &convertMVSemaphore;
+		submitInfo.pSignalSemaphores = &semaphores.renderComplete;
+		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+
 
 		VulkanExampleBase::submitFrame();
 	}
