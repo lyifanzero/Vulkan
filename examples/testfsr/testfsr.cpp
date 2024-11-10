@@ -479,8 +479,8 @@ public:
 	void updateUniformBuffers()
 	{
 		// TODO: Set the vp matrix from file
-		uniformData.viewProjection = camera.matrices.perspective;
-		uniformData.prevViewProjection = camera.matrices.perspective;
+		//uniformData.viewProjection = camera.matrices.perspective;
+		//uniformData.prevViewProjection = camera.matrices.perspective;
 		uniformBuffer.copyTo(&uniformData, sizeof(UniformData));
 	}
 
@@ -584,17 +584,34 @@ public:
 		stbi_image_free(imageData);
 	}
 
+	void loadMatrixFromFile(glm::mat4& mat, const std::string& filename) {
+		std::ifstream inFile(filename, std::ios::binary);
+		if (!inFile) {
+			printf("Failed to open file %s\n", filename.c_str());
+			return;
+		}
+		std::vector<float> matrix;
+		matrix.resize(20);
+		inFile.read(reinterpret_cast<char*>(matrix.data()), 20 * sizeof(float));
+		inFile.close();
+
+		mat = glm::make_mat4(matrix.data());
+	}
+
 	void loadResource(int frameIndex) {
 		std::string filePath = R"(E:\dwarping\dwarping_1011_30fps)";
 		std::string fileName;
-		int index = 101 + frameIndex;
+		int index = 102 + frameIndex;
 		fileName = filePath + "/color/color_frame" + std::to_string(index) + ".png";
 		loadColorTextureFromPNG(fileName);
 		fileName = filePath + "/depth/depth_frame" + std::to_string(index) + ".png";
 		loadDepthTextureFromPNG(fileName);
 		fileName = filePath + "/mvBackward/mvBackward_frame" + std::to_string(index) + ".png";
 		loadMVTextureFromPNG(fileName);
-		// TODO: Load vp matrix
+		fileName = filePath + "/vpMatrix/vpMatrix_frame" + std::to_string(index) + ".bin";
+		loadMatrixFromFile(uniformData.viewProjection, fileName);
+		fileName = filePath + "/vpMatrix/vpMatrix_frame" + std::to_string(index - 1) + ".bin";
+		loadMatrixFromFile(uniformData.prevViewProjection, fileName);
 	}
 
 	void prepareFSRContext() {
