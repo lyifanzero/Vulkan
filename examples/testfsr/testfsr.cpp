@@ -39,8 +39,8 @@ public:
 
 	//
 	struct UniformData {
-		glm::mat4 viewProjection;
-		glm::mat4 prevViewProjection;
+		glm::vec4 viewProjection[5];
+		glm::vec4 prevViewProjection[5];
 	} uniformData;
 	vks::Buffer uniformBuffer;
 
@@ -593,21 +593,15 @@ public:
 		stbi_image_free(imageData);
 	}
 
-	void loadMatrixFromFile(glm::mat4& mat, const std::string& filename) {
+	void loadMatrixFromFile(std::vector<float>& matrix, const std::string& filename) {
 		std::ifstream inFile(filename, std::ios::binary);
 		if (!inFile) {
 			printf("Failed to open file %s\n", filename.c_str());
 			return;
 		}
-		std::vector<float> matrix;
 		matrix.resize(20);
 		inFile.read(reinterpret_cast<char*>(matrix.data()), 20 * sizeof(float));
-		inFile.close();
-
-		glm::mat4 view = glm::mat4(1.0);
-		std::vector<float> translated = { matrix[16], matrix[17], matrix[18], matrix[19] };
-		view += glm::make_vec4(translated.data());
-		mat = glm::make_mat4(matrix.data()) * view;
+		inFile.close();	
 	}
 
 	void loadResource(int frameIndex) {
@@ -619,14 +613,30 @@ public:
 		int index = 102 + frameIndex;
 		fileName = filePath + "/color/color_frame" + std::to_string(index) + ".png";
 		loadColorTextureFromPNG(fileName);
+
 		fileName = filePath + "/depth/depth_frame" + std::to_string(index) + ".png";
 		loadDepthTextureFromPNG(fileName);
+
 		fileName = filePath + "/mvBackward/mvBackward_frame" + std::to_string(index) + ".png";
 		loadMVTextureFromPNG(fileName);
+
 		fileName = filePath + "/vpMatrix/vpMatrix_frame" + std::to_string(index) + ".bin";
-		loadMatrixFromFile(uniformData.viewProjection, fileName);
+		std::vector<float> matrix;
+		loadMatrixFromFile(matrix, fileName);
+		uniformData.viewProjection[0] = glm::vec4(matrix[0], matrix[1], matrix[2], matrix[3]);
+		uniformData.viewProjection[1] = glm::vec4(matrix[4], matrix[5], matrix[6], matrix[7]);
+		uniformData.viewProjection[2] = glm::vec4(matrix[8], matrix[9], matrix[10], matrix[11]);
+		uniformData.viewProjection[3] = glm::vec4(matrix[12], matrix[13], matrix[14], matrix[15]);
+		uniformData.viewProjection[4] = glm::vec4(matrix[16], matrix[17], matrix[18], matrix[19]);
+
 		fileName = filePath + "/vpMatrix/vpMatrix_frame" + std::to_string(index - 1) + ".bin";
-		loadMatrixFromFile(uniformData.prevViewProjection, fileName);
+		loadMatrixFromFile(matrix, fileName);
+		uniformData.prevViewProjection[0] = glm::vec4(matrix[0], matrix[1], matrix[2], matrix[3]);
+		uniformData.prevViewProjection[1] = glm::vec4(matrix[4], matrix[5], matrix[6], matrix[7]);
+		uniformData.prevViewProjection[2] = glm::vec4(matrix[8], matrix[9], matrix[10], matrix[11]);
+		uniformData.prevViewProjection[3] = glm::vec4(matrix[12], matrix[13], matrix[14], matrix[15]);
+		uniformData.prevViewProjection[4] = glm::vec4(matrix[16], matrix[17], matrix[18], matrix[19]);
+
 		resourceLoaded = true;
 	}
 
