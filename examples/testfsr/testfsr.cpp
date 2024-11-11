@@ -643,18 +643,18 @@ public:
 		createFg.displaySize = { width, height };
 		createFg.maxRenderSize = { width, height };
 		// The flags is combination of FfxApiCreateContextFramegenerationFlags
-		bool depthInverted = false;
+		bool depthInverted = true;
 		bool enableAsyncCompute = false;
 		if (depthInverted) {
-			createFg.flags |= FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED | FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE;
+			createFg.flags |= FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
 		}
 		if (enableAsyncCompute) {
 			createFg.flags |= FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT;
 		}
 		// FIXME: Whether need to enable HDR?
-		createFg.flags |= FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
+		createFg.flags |= FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE;
 		// Surface format: one of the values from FfxApiSurfaceFormat
-		createFg.backBufferFormat = FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM;  // Keep this same with type of swapchain backbuffer or create a new one
+		createFg.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;  // Keep this same with type of swapchain backbuffer or create a new one
 
 		ffx::ReturnCode retCode = ffx::CreateContext(m_FrameGenContext, nullptr, createFg, backendDesc);
 		// Check if retCode == ffx::ReturnCode::OK
@@ -697,13 +697,13 @@ public:
 		dispatchFgPrep.jitterOffset.y = 0;
 		dispatchFgPrep.motionVectorScale.x = width;
 		dispatchFgPrep.motionVectorScale.y = height;
-		dispatchFgPrep.frameTimeDelta = 33.3;
+		dispatchFgPrep.frameTimeDelta = 33.3;     // Fixme
 		dispatchFgPrep.renderSize.width = width;
 		dispatchFgPrep.renderSize.height = height;
-		dispatchFgPrep.cameraFovAngleVertical = 1.5707963;
-		dispatchFgPrep.cameraFar = 0.0;
+		dispatchFgPrep.cameraFovAngleVertical = 1.28700221;
+		dispatchFgPrep.cameraFar = 10.0;
 		dispatchFgPrep.cameraNear = 2097152.0;
-		dispatchFgPrep.viewSpaceToMetersFactor = 0.f;
+		dispatchFgPrep.viewSpaceToMetersFactor = 0.01f;
 		dispatchFgPrep.frameID = m_FrameID;
 
 		bool presentInterpolatedOnly = true;
@@ -711,6 +711,7 @@ public:
 		//
 		m_FrameGenerationConfig.frameGenerationEnabled = true;
 		m_FrameGenerationConfig.flags = 0;
+		//
 		dispatchFgPrep.flags = m_FrameGenerationConfig.flags;
 		m_FrameGenerationConfig.generationRect.left = 0;
 		m_FrameGenerationConfig.generationRect.top = 0;
