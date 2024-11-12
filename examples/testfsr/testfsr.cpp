@@ -24,6 +24,7 @@
 class VulkanExample : public VulkanExampleBase
 {
 public:
+	bool loadCompressedResource = false;
 	//
 	VkPhysicalDeviceTimelineSemaphoreFeatures timelineSemaphoreFeatures = {};
 
@@ -611,13 +612,23 @@ public:
 		std::string filePath = R"(E:\dwarping\dwarping_1011_30fps)";
 		std::string fileName;
 		int index = 102 + frameIndex;
-		fileName = filePath + "/color/color_frame" + std::to_string(index) + ".png";
+		std::string paddingIndex;
+		if (loadCompressedResource) {
+			std::stringstream ss;
+			ss << std::setw(4) << std::setfill('0') << frameIndex + 2;
+			paddingIndex = ss.str();
+		}
+		else {
+			paddingIndex = std::to_string(index);
+		}
+
+		fileName = filePath + (loadCompressedResource ? "/color_decode/color_frame" : "/color/color_frame") + paddingIndex + ".png";
 		loadColorTextureFromPNG(fileName);
 
-		fileName = filePath + "/depth/depth_frame" + std::to_string(index) + ".png";
+		fileName = filePath + (loadCompressedResource ? "/depth_decode/depth_frame" : "/depth/depth_frame") + paddingIndex + ".png";
 		loadDepthTextureFromPNG(fileName);
 
-		fileName = filePath + "/mvBackward/mvBackward_frame" + std::to_string(index) + ".png";
+		fileName = filePath + (loadCompressedResource ? "/mvBackward_decode/mvBackward_frame" : "/mvBackward/mvBackward_frame") + paddingIndex + ".png";
 		loadMVTextureFromPNG(fileName);
 
 		fileName = filePath + "/vpMatrix/vpMatrix_frame" + std::to_string(index) + ".bin";
@@ -636,6 +647,8 @@ public:
 		uniformData.prevViewProjection[2] = glm::vec4(matrix[8], matrix[9], matrix[10], matrix[11]);
 		uniformData.prevViewProjection[3] = glm::vec4(matrix[12], matrix[13], matrix[14], matrix[15]);
 		uniformData.prevViewProjection[4] = glm::vec4(matrix[16], matrix[17], matrix[18], matrix[19]);
+
+		vkDeviceWaitIdle(device);
 
 		resourceLoaded = true;
 	}
