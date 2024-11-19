@@ -25,6 +25,10 @@ class VulkanExample : public VulkanExampleBase
 {
 public:
 	bool loadCompressedResource = false;
+	std::string filePath = R"(E:\dwarping\dwarping_1011_30fps)";
+
+	bool saveToPPM = false;
+	VkImage downloadImage;
 	//
 	VkPhysicalDeviceTimelineSemaphoreFeatures timelineSemaphoreFeatures = {};
 
@@ -549,12 +553,9 @@ public:
 			unsigned char g = imageData[i * 4 + 1];
 			unsigned char b = imageData[i * 4 + 2];
 			float depth = r / 255.0f + g / (255.0f * 255.0f) + b / (255.0f * 255.0f * 255.0f);
-
+			
 			// float to 24 bit unsigned int
 			depthData[i] = static_cast<uint32_t>(depth * 16777215.0f); // 16777215 = 2^24 - 1
-
-			// Don't need to shift 8 bit
-			// depthData[i] = depthData[i] << 8;
 		}
 
 		loadDepthTexture.fromBuffer(depthData.data(), depthData.size() * sizeof(GLuint), VK_FORMAT_R32_UINT, width, height, vulkanDevice, queue);
@@ -562,6 +563,7 @@ public:
 
 		stbi_image_free(imageData);
 	}
+
 
 	void loadMVTextureFromPNG(const std::string& filename) {
 		int width, height, channels;
@@ -584,8 +586,21 @@ public:
 			uint16_t b = imageData[i * 4 + 2];
 			uint16_t a = imageData[i * 4 + 3];
 
-			mvData[i * 2 + 0] = (r << 8) | g;
-			mvData[i * 2 + 1] = (b << 8) | a;
+			if (loadCompressedResource) {
+				/*mvData[i * 2 + 0] = (r << 8) | ((b & 0xF0));
+				mvData[i * 2 + 1] = (g << 8) | ((b & 0x0F) << 4);*/
+				uint8_t x_high_7 = (r >> 1) & 0x7F;
+				uint8_t x_4 = r & 0x01;
+				uint8_t x_5_to_8 = (g >> 4) & 0x0F;
+				uint8_t y_5_to_8 = g & 0x0F;
+				uint8_t y_high_7 = (b >> 1) & 0x7F;
+				uint8_t y_4 = b & 0x01;
+				mvData[i * 2 + 0] = (x_high_7 << 9) | (x_5_to_8 << 5) | (x_4 << 4);
+				mvData[i * 2 + 1] = (y_high_7 << 9) | (y_5_to_8 << 5) | (y_4 << 4);
+			} else {
+				mvData[i * 2 + 0] = (r << 8) | g;
+				mvData[i * 2 + 1] = (b << 8) | a;
+			}
 		}
 
 		loadMotionVectors.fromBuffer(mvData.data(), mvData.size() * sizeof(uint16_t), VK_FORMAT_R16G16_UINT, width, height, vulkanDevice, queue, VK_FILTER_NEAREST);
@@ -609,7 +624,6 @@ public:
 		if (resourceLoaded) {
 			return;
 		}
-		std::string filePath = R"(E:\dwarping\dwarping_1011_30fps)";
 		std::string fileName;
 		int index = 102 + frameIndex;
 		std::string paddingIndex;
@@ -622,16 +636,28 @@ public:
 			paddingIndex = std::to_string(index);
 		}
 
-		fileName = filePath + (loadCompressedResource ? "/color_decode/color_frame" : "/color/color_frame") + paddingIndex + ".png";
+		if (loadCompressedResource) {
+			fileName = filePath + "/endecoder_data/color_decode/color_frame" + paddingIndex + ".png";
+		} else {
+			fileName = filePath + "/original_data/color/color_frame" + paddingIndex + ".png";
+		}
 		loadColorTextureFromPNG(fileName);
 
-		fileName = filePath + (loadCompressedResource ? "/depth_decode/depth_frame" : "/depth/depth_frame") + paddingIndex + ".png";
+		if (loadCompressedResource) {
+			fileName = filePath + "/endecoder_data/depth_decode/depth_frame" + paddingIndex + ".png";
+		} else {
+			fileName = filePath + "/original_data/depth/depth_frame" + paddingIndex + ".png";
+		}
 		loadDepthTextureFromPNG(fileName);
 
-		fileName = filePath + (loadCompressedResource ? "/mvBackward_decode/mvBackward_frame" : "/mvBackward/mvBackward_frame") + paddingIndex + ".png";
+		if (loadCompressedResource) {
+			fileName = filePath + "/endecoder_data/mvBackward_decode/mvBackward_frame" + paddingIndex + ".png";
+		} else {
+			fileName = filePath + "/original_data/mvBackward/mvBackward_frame" + paddingIndex + ".png";
+		}
 		loadMVTextureFromPNG(fileName);
 
-		fileName = filePath + "/vpMatrix/vpMatrix_frame" + std::to_string(index) + ".bin";
+		fileName = filePath + "/original_data/vpMatrix/vpMatrix_frame" + std::to_string(index) + ".bin";
 		std::vector<float> matrix;
 		loadMatrixFromFile(matrix, fileName);
 		uniformData.viewProjection[0] = glm::vec4(matrix[0], matrix[1], matrix[2], matrix[3]);
@@ -640,7 +666,7 @@ public:
 		uniformData.viewProjection[3] = glm::vec4(matrix[12], matrix[13], matrix[14], matrix[15]);
 		uniformData.viewProjection[4] = glm::vec4(matrix[16], matrix[17], matrix[18], matrix[19]);
 
-		fileName = filePath + "/vpMatrix/vpMatrix_frame" + std::to_string(index - 1) + ".bin";
+		fileName = filePath + "/original_data/vpMatrix/vpMatrix_frame" + std::to_string(index - 1) + ".bin";
 		loadMatrixFromFile(matrix, fileName);
 		uniformData.prevViewProjection[0] = glm::vec4(matrix[0], matrix[1], matrix[2], matrix[3]);
 		uniformData.prevViewProjection[1] = glm::vec4(matrix[4], matrix[5], matrix[6], matrix[7]);
@@ -720,12 +746,12 @@ public:
 		dispatchFgPrep.jitterOffset.y = 0;
 		dispatchFgPrep.motionVectorScale.x = width;
 		dispatchFgPrep.motionVectorScale.y = height;
-		dispatchFgPrep.frameTimeDelta = 33.3;     // Fixme
+		dispatchFgPrep.frameTimeDelta = 33.3;
 		dispatchFgPrep.renderSize.width = width;
 		dispatchFgPrep.renderSize.height = height;
 		dispatchFgPrep.cameraFovAngleVertical = 1.28700221;
 		dispatchFgPrep.cameraFar = 10.0;
-		dispatchFgPrep.cameraNear = 2097152.0;
+		dispatchFgPrep.cameraNear = FLT_MAX;
 		dispatchFgPrep.viewSpaceToMetersFactor = 0.01f;
 		dispatchFgPrep.frameID = m_FrameID;
 
@@ -786,6 +812,8 @@ public:
 			queryFiTexture.pOutTexture = &dispatchFg.outputs[0];
 			ffx::Query(m_SwapChainContext, queryFiTexture);
 
+			downloadImage = (VkImage)queryFiTexture.pOutTexture->resource;
+
 			dispatchFg.frameID = m_FrameID;
 			dispatchFg.reset = resetFSRFG;
 
@@ -824,7 +852,8 @@ public:
 		}
 
 		// Source for the copy is the last rendered swapchain image
-		VkImage srcImage = swapChain.images[currentBuffer];
+		//VkImage srcImage = swapChain.images[currentBuffer];
+		VkImage srcImage = downloadImage;
 
 		// Create the linear tiled destination image to copy to and to read the memory from
 		VkImageCreateInfo imageCreateCI(vks::initializers::imageCreateInfo());
@@ -875,7 +904,7 @@ public:
 			srcImage,
 			VK_ACCESS_MEMORY_READ_BIT,
 			VK_ACCESS_TRANSFER_READ_BIT,
-			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -946,7 +975,7 @@ public:
 			VK_ACCESS_TRANSFER_READ_BIT,
 			VK_ACCESS_MEMORY_READ_BIT,
 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
@@ -963,11 +992,6 @@ public:
 		vkMapMemory(device, dstImageMemory, 0, VK_WHOLE_SIZE, 0, (void**)&data);
 		data += subResourceLayout.offset;
 
-		std::ofstream file(filename, std::ios::out | std::ios::binary);
-
-		// ppm header
-		file << "P6\n" << width << "\n" << height << "\n" << 255 << "\n";
-
 		// If source is BGR (destination is always RGB) and we can't use blit (which does automatic conversion), we'll have to manually swizzle color components
 		bool colorSwizzle = false;
 		// Check if source is BGR
@@ -978,29 +1002,60 @@ public:
 			colorSwizzle = (std::find(formatsBGR.begin(), formatsBGR.end(), swapChain.colorFormat) != formatsBGR.end());
 		}
 
-		// ppm binary pixel data
-		for (uint32_t y = 0; y < height; y++)
-		{
-			unsigned int *row = (unsigned int*)data;
-			for (uint32_t x = 0; x < width; x++)
+		if (saveToPPM) {
+			// ppm binary pixel data
+			std::ofstream file(filename, std::ios::out | std::ios::binary);
+			// ppm header
+			file << "P6\n" << width << "\n" << height << "\n" << 255 << "\n";
+			for (uint32_t y = 0; y < height; y++)
 			{
-				if (colorSwizzle)
+				unsigned int* row = (unsigned int*)data;
+				for (uint32_t x = 0; x < width; x++)
 				{
-					file.write((char*)row+2, 1);
-					file.write((char*)row+1, 1);
-					file.write((char*)row, 1);
+					if (colorSwizzle)
+					{
+						file.write((char*)row + 2, 1);
+						file.write((char*)row + 1, 1);
+						file.write((char*)row, 1);
+					}
+					else
+					{
+						file.write((char*)row, 3);
+					}
+					row++;
 				}
-				else
-				{
-					file.write((char*)row, 3);
-				}
-				row++;
+				data += subResourceLayout.rowPitch;
 			}
-			data += subResourceLayout.rowPitch;
-		}
-		file.close();
+			file.close();
 
-		std::cout << "Screenshot saved to disk" << std::endl;
+			std::cout << "Screenshot saved to disk" << std::endl;
+		} else {
+			std::vector<unsigned char> imageData(width * height * 3);
+			for (uint32_t y = 0; y < height; y++) {
+				unsigned int* row = (unsigned int*)(data + y * subResourceLayout.rowPitch);
+				for (uint32_t x = 0; x < width; x++) {
+					unsigned char* pixel = (unsigned char*)&row[x];
+					if (colorSwizzle) {
+						imageData[(y * width + x) * 3 + 0] = pixel[2];
+						imageData[(y * width + x) * 3 + 1] = pixel[1];
+						imageData[(y * width + x) * 3 + 2] = pixel[0];
+						//imageData[(y * width + x) * 4 + 3] = pixel[3];
+					} else {
+						imageData[(y * width + x) * 3 + 0] = pixel[0];
+						imageData[(y * width + x) * 3 + 1] = pixel[1];
+						imageData[(y * width + x) * 3 + 2] = pixel[2];
+						//imageData[(y * width + x) * 4 + 3] = pixel[3];
+					}
+				}
+			}
+			// use stb_image_write to save data to a PNG file
+			if (stbi_write_png(filename, width, height, 3, imageData.data(), width * 3) == 0) {
+				std::cerr << "Failed to write PNG file: " << filename << std::endl;
+			}
+			else {
+				std::cout << "Successfully wrote PNG file: " << filename << std::endl;
+			}
+		}
 
 		// Clean up resources
 		vkUnmapMemory(device, dstImageMemory);
@@ -1054,6 +1109,9 @@ public:
 		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
 
 		VulkanExampleBase::submitFrame();
+
+		/*std::string fileName = filePath + "/color_fsr_compressedMV/color_frame" + std::to_string(102 + m_FrameID) + (saveToPPM ? ".ppm" : ".png");
+		saveScreenshot(fileName.c_str());*/
 	}
 
 	virtual void render()
