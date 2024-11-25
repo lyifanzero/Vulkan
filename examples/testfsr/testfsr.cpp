@@ -24,7 +24,7 @@
 class VulkanExample : public VulkanExampleBase
 {
 public:
-	bool loadCompressedResource = false;
+	bool loadCompressedResource = true;
 	std::string filePath = R"(E:\dwarping\dwarping_1011_30fps)";
 
 	bool saveToPPM = false;
@@ -533,6 +533,16 @@ public:
 		stbi_image_free(imageData);
 	}
 
+	float dequantizeDepth(int q) {
+		float x = 0;
+		if (q >= 0 && q < 200) {
+			x = q * 0.0003;
+		} else if (q >= 200 && q <= 255) {
+			x = (q - 200) * 0.0167857 + 0.06;
+		}
+		return x;
+	}
+
 	void loadDepthTextureFromPNG(const std::string& filename) {
 		int width, height, channels;
 		std::vector<unsigned char> fileData = readFile(filename);
@@ -552,10 +562,17 @@ public:
 			unsigned char r = imageData[i * 4 + 0];
 			unsigned char g = imageData[i * 4 + 1];
 			unsigned char b = imageData[i * 4 + 2];
-			float depth = r / 255.0f + g / (255.0f * 255.0f) + b / (255.0f * 255.0f * 255.0f);
-			
+
+			float depth = 0;
+			if (true) {
+				depth = dequantizeDepth(r);
+			}
+			else {
+				depth = r / 255.0f + g / (255.0f * 255.0f) + b / (255.0f * 255.0f * 255.0f);	
+			}
 			// float to 24 bit unsigned int
 			depthData[i] = static_cast<uint32_t>(depth * 16777215.0f); // 16777215 = 2^24 - 1
+			//depthData[i] = depthData[i] & 0x00FF0000;
 		}
 
 		loadDepthTexture.fromBuffer(depthData.data(), depthData.size() * sizeof(GLuint), VK_FORMAT_R32_UINT, width, height, vulkanDevice, queue);
@@ -564,6 +581,19 @@ public:
 		stbi_image_free(imageData);
 	}
 
+	uint16_t dequantizeMV(int q) {
+		float x = 0;
+		if (q >= 1 && q <= 201) {
+			x = (q - 1) * 0.001 - 0.1;
+		}else if (q >= 202 && q <= 228) {
+			x = (q - 202) * 0.07037 - 2;
+		}else if (q >= 229 && q <= 225) {
+			x = (q - 202) * 0.07037 + 0.1;
+		}
+
+		uint16_t value = (x + 2.0) / 4.0 * 65536;
+		return value;
+	}
 
 	void loadMVTextureFromPNG(const std::string& filename) {
 		int width, height, channels;
@@ -586,17 +616,24 @@ public:
 			uint16_t b = imageData[i * 4 + 2];
 			uint16_t a = imageData[i * 4 + 3];
 
-			if (loadCompressedResource) {
+			if (true) {
 				/*mvData[i * 2 + 0] = (r << 8) | ((b & 0xF0));
 				mvData[i * 2 + 1] = (g << 8) | ((b & 0x0F) << 4);*/
-				uint8_t x_high_7 = (r >> 1) & 0x7F;
+				/*uint8_t x_high_7 = (r >> 1) & 0x7F;
 				uint8_t x_4 = r & 0x01;
 				uint8_t x_5_to_8 = (g >> 4) & 0x0F;
 				uint8_t y_5_to_8 = g & 0x0F;
 				uint8_t y_high_7 = (b >> 1) & 0x7F;
 				uint8_t y_4 = b & 0x01;
 				mvData[i * 2 + 0] = (x_high_7 << 9) | (x_5_to_8 << 5) | (x_4 << 4);
-				mvData[i * 2 + 1] = (y_high_7 << 9) | (y_5_to_8 << 5) | (y_4 << 4);
+				mvData[i * 2 + 1] = (y_high_7 << 9) | (y_5_to_8 << 5) | (y_4 << 4);*/
+				if (r == 0 && g == 0) {
+					mvData[i * 2 + 0] = 0;
+					mvData[i * 2 + 1] = 0;
+				} else {
+					mvData[i * 2 + 0] = dequantizeMV(r);
+					mvData[i * 2 + 1] = dequantizeMV(g);
+				}
 			} else {
 				mvData[i * 2 + 0] = (r << 8) | g;
 				mvData[i * 2 + 1] = (b << 8) | a;
@@ -632,29 +669,28 @@ public:
 			ss << std::setw(4) << std::setfill('0') << frameIndex + 2;
 			paddingIndex = ss.str();
 		}
-		else {
-			paddingIndex = std::to_string(index);
-		}
 
 		if (loadCompressedResource) {
 			fileName = filePath + "/endecoder_data/color_decode/color_frame" + paddingIndex + ".png";
 		} else {
-			fileName = filePath + "/original_data/color/color_frame" + paddingIndex + ".png";
+			fileName = filePath + "/original_data/color/color_frame" + std::to_string(index) + ".png";
 		}
 		loadColorTextureFromPNG(fileName);
 
 		if (loadCompressedResource) {
-			fileName = filePath + "/endecoder_data/depth_decode/depth_frame" + paddingIndex + ".png";
+			fileName = filePath + "/endecoder_data/depth8_decode/depth_frame" + paddingIndex + ".png";
 		} else {
-			fileName = filePath + "/original_data/depth/depth_frame" + paddingIndex + ".png";
+			fileName = filePath + "/original_data/depth/depth_frame" + std::to_string(index) + ".png";
 		}
+		fileName = filePath + "/endecoder_data/depth8/depth_frame" + std::to_string(index) + ".png";
 		loadDepthTextureFromPNG(fileName);
 
 		if (loadCompressedResource) {
-			fileName = filePath + "/endecoder_data/mvBackward_decode/mvBackward_frame" + paddingIndex + ".png";
+			fileName = filePath + "/endecoder_data/mvBackward_decode_rg8/mvBackward_frame" + paddingIndex + ".png";
 		} else {
-			fileName = filePath + "/original_data/mvBackward/mvBackward_frame" + paddingIndex + ".png";
+			fileName = filePath + "/original_data/mvBackward/mvBackward_frame" + std::to_string(index) + ".png";
 		}
+		//fileName = filePath + "/endecoder_data/mvBackward_rg8/mvBackward_frame" + std::to_string(index) + ".png";
 		loadMVTextureFromPNG(fileName);
 
 		fileName = filePath + "/original_data/vpMatrix/vpMatrix_frame" + std::to_string(index) + ".bin";
